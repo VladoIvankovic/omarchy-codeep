@@ -1,0 +1,8 @@
+omarchy-codeep
+Copyright 2026 Vlado Ivankovic
+
+The mark this plugin draws is Codeep's logo (Codeep.svg in the Codeep
+repository, Apache-2.0). The mascot was drawn by the author of this plugin for
+the Codeep website (codeep.dev). Both are reduced to path data in Logo.qml,
+Mascot.qml and assets/, and distributed here under the Apache License,
+Version 2.0 (LICENSE).

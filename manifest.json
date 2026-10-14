@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "id": "codeep.agent",
+  "name": "Codeep",
+  "version": "1.0.0",
+  "author": "Vlado Ivankovic",
+  "license": "Apache-2.0",
+  "description": "Codeep in the bar: whether it is idle, working or waiting for you, today's and this week's usage, and a field that opens Codeep in a terminal with your prompt.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "Widget.qml"
+  },
+  "barWidget": {
+    "displayName": "Codeep",
+    "description": "Codeep's mark in the bar with a state cue, and a panel with usage, running sessions and an Ask field.",
+    "category": "AI",
+    "aliases": ["codeep", "agent"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 60,
+      "statusIntervalSec": 3,
+      "unattended": false,
+      "hideWhenIdle": false,
+      "animate": true,
+      "workDir": "",
+      "codeepPath": ""
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Usage refresh while the panel is open (seconds)",
+        "min": 15,
+        "max": 3600,
+        "step": 15,
+        "defaultValue": 60
+      },
+      {
+        "key": "statusIntervalSec",
+        "type": "integer",
+        "label": "How often to look for running Codeep (seconds)",
+        "min": 1,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 3
+      },
+      {
+        "key": "unattended",
+        "type": "boolean",
+        "label": "Run unattended (--yolo)",
+        "description": "Codeep started from the Ask field runs without stopping to ask for approval. Off by default.",
+        "defaultValue": false
+      },
+      {
+        "key": "hideWhenIdle",
+        "type": "boolean",
+        "label": "Hide when nothing runs",
+        "description": "Take the mark off the bar while no Codeep is running. Open the panel with: omarchy-shell codeep.agent toggle",
+        "defaultValue": false
+      },
+      {
+        "key": "animate",
+        "type": "boolean",
+        "label": "Animate while working",
+        "description": "Step the mark while Codeep works. Off holds one chevron lit instead of moving. The shell's own reduced-motion switch is honoured where it exists.",
+        "defaultValue": true
+      },
+      {
+        "key": "workDir",
+        "type": "path",
+        "label": "Folder to start Codeep in (blank: ~/Work)",
+        "defaultValue": ""
+      },
+      {
+        "key": "codeepPath",
+        "type": "path",
+        "label": "Codeep binary (blank: find it)",
+        "defaultValue": ""
+      }
+    ]
+  }
+}
