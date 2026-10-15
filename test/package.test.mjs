@@ -126,12 +126,115 @@ test('nothing it shows is ever markup: every Text is PlainText', () => {
   }
 });
 
-test('the prompt reaches the launcher through Model.launchArgv only', () => {
+// What the Ask field types is never a word of a command: not of the terminal's,
+// not of Codeep's, not of mktemp's. These read the QML, which cannot be run
+// here; test/model.test.mjs proves the Model side.
+
+// Every place the widget builds a command: `command: [...]`, `Model.*Argv(...)`.
+const commandExpressions = src => [
+  ...[...src.matchAll(/\bcommand\s*[:=]\s*([^\n]+)/g)].map(m => m[1]),
+  ...[...src.matchAll(/Model\.\w*(?:Argv|Template)\(([^)]*)\)/g)].map(m => m[0]),
+  ...[...src.matchAll(/execDetached\(([^\n]+)/g)].map(m => m[1]),
+];
+
+test('no QML source builds a command from the prompt', () => {
+  for (const file of qmlFiles) {
+    const src = read(file);
+    for (const expression of commandExpressions(src)) {
+      assert.doesNotMatch(expression, /pendingPrompt|askField|\.text\b|cleanPrompt|\bprompt\b|\btext\b/, `${file}: ${expression}`);
+    }
+  }
+  // The launch command is built from the binary, the private file's path and the plan's verdict.
   const widget = read('Widget.qml');
-  assert.match(widget, /Model\.launchArgv\(/);
-  assert.match(widget, /Quickshell\.execDetached\(\{ command: argv/);
-  // The only strings that carry user text into a command are argv elements.
-  assert.doesNotMatch(widget, /command:\s*\[[^\]]*\+\s*(prompt|text|pendingPrompt)/);
+  assert.match(widget, /Model\.launchArgv\(root\.launchBinary, promptFile, root\.launchUnattended\)/);
+  assert.match(widget, /Quickshell\.execDetached\(\{ command: argv, workingDirectory: root\.launchDir \}\)/);
+  // The path it is given comes from mktemp's own answer, checked by the Model.
+  assert.match(widget, /Model\.promptFileFromOutput\(output, root\.runtimeDir\)/);
+  assert.match(widget, /root\.launchNow\(root\.promptPath\)/);
+});
+
+test('the prompt is written to the private file with FileView.setText, in place, and nowhere else', () => {
+  const widget = read('Widget.qml');
+  const writer = /FileView \{\s*id: promptWriter([\s\S]*?)\n  \}/.exec(widget);
+  assert.ok(writer, 'the promptWriter');
+  // In place: a temporary file and a rename would replace mktemp's 0600 file with the umask's.
+  assert.match(writer[1], /atomicWrites: false/);
+  assert.match(writer[1], /preload: false/);
+  assert.match(writer[1], /onSaved: root\.promptWritten\(\)/);
+  assert.match(writer[1], /onSaveFailed: root\.promptWriteFailed\(\)/);
+  assert.equal([...widget.matchAll(/\.setText\(/g)].length, 1);
+  assert.match(widget, /promptWriter\.setText\(root\.pendingPrompt\)/);
+  // Where the pending prompt may be read or written: these lines and no others.
+  const allowed = [
+    /^\s*property string pendingPrompt: ""$/,
+    /^\s*\/\/ /,                                           // comments
+    /^\s*root\.pendingPrompt = (prompt|"")$/,
+    /Model\.launchPlan\(root\.pendingPrompt, root\.unattended, target,/,
+    /^\s*if \(root\.pendingPrompt === ""\) \{$/,
+    /^\s*promptWriter\.setText\(root\.pendingPrompt\)$/,
+  ];
+  for (const line of widget.split('\n')) {
+    if (!line.includes('pendingPrompt')) continue;
+    assert.ok(allowed.some(re => re.test(line)), `pendingPrompt used here: ${line.trim()}`);
+  }
+});
+
+test('a notice is a fixed sentence: it never holds what was typed', () => {
+  const widget = read('Widget.qml');
+  const notices = [...widget.matchAll(/abortLaunch\(([^\n]*)\)\s*$/gm)].map(m => m[1]);
+  assert.ok(notices.length >= 8, `${notices.length} abortLaunch calls`);
+  // A string literal, or the fixed reason the Model's plan or gate returned: never an expression.
+  for (const arg of notices) assert.match(arg, /^("[^"+]*"|plan\.reason|gate\.reason|notice)$/, arg);
+  // And the only other assignment to the notice is the plan's or the gate's fixed reason.
+  for (const m of widget.matchAll(/launchNotice = ([^\n]+)/g)) assert.match(m[1], /^(""|notice)$/, m[0]);
+  // No log line, no console output, from any part: nothing could carry a prompt there.
+  for (const file of [...qmlFiles, 'Model.js']) assert.doesNotMatch(read(file), /\bconsole\.|\bprint\(|Qt\.(?:log|warning)/, file);
+});
+
+test('the version gate comes before any file is made, and a launcher never gets a prompt', () => {
+  const widget = read('Widget.qml');
+  const plan = widget.indexOf('Model.launchPlan(root.pendingPrompt');
+  const gate = widget.indexOf('Model.promptGate(cli.binary !== "" && cli.binary === root.launchBinary,');
+  const template = widget.indexOf('Model.promptFileTemplate(root.runtimeDir)');
+  const make = widget.indexOf('maker.begin(template)');
+  assert.ok(plan > 0 && plan < gate && gate < template && template < make, 'plan, gate, template, mktemp');
+  // The version the gate reads must be the one asked for THIS Ask: a leftover
+  // from an earlier probe counts as unknown (and CodeepCli drops it when a
+  // step fails before the fresh one ran).
+  assert.match(widget, /cli\.versionFresh \? cli\.versionParts : null/);
+  assert.match(read('CodeepCli.qml'), /if \(root\.wantVersion && !root\.versionFresh\) root\.versionParts = null/);
+  assert.match(read('CodeepCli.qml'), /root\.wantVersion = needVersion === true\s*\n\s*root\.versionFresh = false/);
+  // ...and a refusal ends the Ask there, with the gate's own reason.
+  assert.match(widget, /if \(!gate\.ok\) \{\s*root\.abortLaunch\(gate\.reason\)\s*return\s*\}/);
+  // A prompt launch asks for the version afresh; a bare one does not need it.
+  assert.match(widget, /cli\.resolve\(prompt !== ""\)/);
+  assert.match(widget, /if \(prompt === "" && cli\.launchPath !== ""\) root\.binaryResolved\(cli\.launchPath\)/);
+  const cli = read('CodeepCli.qml');
+  assert.match(cli, /function resolve\(needVersion\)/);
+  assert.match(cli, /root\.wantVersion && !root\.versionFresh/);
+  assert.match(cli, /root\.start\("version", Model\.probeArgv\(root\.binary, \["--version"\]\), 10\)/);
+  // Too old, or not known, is looked at again at the next Ask: Codeep may have been updated.
+  assert.match(cli, /!Model\.supportsPromptFile\(root\.versionParts\)/);
+});
+
+test('every step of an Ask is under timeout, and its files are cleaned on every way out', () => {
+  const widget = read('Widget.qml');
+  assert.match(widget, /command: \["timeout", "-k", "1", "5", "test", "-d", target\]/);
+  assert.match(widget, /command = \["timeout", "-k", "1", "5"\]\.concat\(template\)/);
+  // The removal of a file is an argv from the Model, under timeout as well.
+  assert.match(widget, /\["timeout", "-k", "1", "5"\]\.concat\(argv\)/);
+  // One step variable, and one way to end an Ask that did not start Codeep, which removes the file.
+  const abort = /function abortLaunch\(notice\) \{[\s\S]*?\n  \}/.exec(widget);
+  assert.ok(abort, 'abortLaunch');
+  assert.match(abort[0], /root\.removeFile\(root\.promptPath\)/);
+  assert.match(abort[0], /root\.launchStage = ""/);
+  assert.match(widget, /id: launchWatchdog[\s\S]*?onTriggered: root\.abortLaunch\(/);
+  assert.match(widget, /Component\.onDestruction:/);
+  // Several files can wait for the two-minute removal at once.
+  assert.match(widget, /Model\.pendingAdd\(root\.staleFiles, promptFile, Date\.now\(\)\)/);
+  assert.match(widget, /Model\.pendingSweep\(root\.staleFiles, Date\.now\(\)\)/);
+  // Nothing left of the old single-slot state.
+  assert.doesNotMatch(widget, /launchWanted/);
 });
 
 test('unattended is read through toBool and defaults to off in the widget too', () => {
@@ -173,8 +276,9 @@ test('the Ask field stays inside the card: the head and the foot are pinned, the
 
 test('an unattended launch goes through Model.launchPlan, and the caption uses a prefix replace', () => {
   const widget = read('Widget.qml');
-  assert.match(widget, /Model\.launchPlan\(prompt, root\.unattended, target,/);
-  assert.match(widget, /Model\.launchArgv\(cli\.launchPath, prompt, plan\.unattended\)/);
+  assert.match(widget, /Model\.launchPlan\(root\.pendingPrompt, root\.unattended, target,/);
+  assert.match(widget, /root\.launchUnattended = plan\.unattended/);
+  assert.match(widget, /Model\.launchArgv\(root\.launchBinary, promptFile, root\.launchUnattended\)/);
   assert.doesNotMatch(widget, /\.replace\(root\.homeDir/);
   // launchArgv is never handed the setting itself: only the plan's verdict.
   assert.doesNotMatch(widget, /Model\.launchArgv\([^)]*root\.unattended\)/);
@@ -200,4 +304,28 @@ test('the panel opens at the top, not where it was scrolled to last time', () =>
   const handler = /onOpenedChanged: \{[\s\S]*?\n  \}/.exec(widget);
   assert.ok(handler, 'onOpenedChanged');
   assert.match(handler[0], /scroller\.contentY = 0/);
+});
+
+test('the README says what is true of the files and of the size', () => {
+  const readme = read('README.md');
+  assert.doesNotMatch(readme, /writes? no file|writes a file, not even/i);
+  assert.doesNotMatch(readme, /a few hundred lines/);
+  // "about N lines": the QML and Model.js, as `wc -l *.qml Model.js` counts them.
+  const stated = /about ([\d,]+) lines/.exec(readme);
+  assert.ok(stated, 'the README gives a line count');
+  const lines = readdirSync(root).filter(f => f.endsWith('.qml') || f === 'Model.js')
+    .reduce((n, f) => n + read(f).split('\n').length - 1, 0);
+  assert.ok(Math.abs(lines - Number(stated[1].replace(/,/g, ''))) <= 100, `README says ${stated[1]}, the files have ${lines}`);
+  // The version of the package is the version the README's requirements are written for.
+  const m = JSON.parse(read('manifest.json'));
+  assert.equal(m.version, '1.1.0');
+  assert.match(readme, /3\.12\.1/);
+});
+
+test('an aborted Ask keeps what was typed even when it has to open the panel to say why', () => {
+  const widget = read('Widget.qml');
+  // Opening clears the field and the notice; the abort path says "keep it" first.
+  assert.match(widget, /property bool keepTextOnOpen: false/);
+  assert.match(widget, /if \(!root\.keepTextOnOpen\) askField\.text = ""/);
+  assert.match(widget, /root\.keepTextOnOpen = true\s*\n\s*root\.open\(\)/);
 });

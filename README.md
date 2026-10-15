@@ -32,10 +32,12 @@ click refreshes. The tooltip says what is going on.
 - **Running**: every Codeep process that says it is running — project, state,
   and the short label of what it is working on. Read-only;
 - **Ask Codeep…**: type a prompt and press Enter. A terminal opens running
-  `codeep -- "<your prompt>"`, in `~/Work` (a setting), with the prompt as one
-  argument and nothing in between that could read it as a command. The header
-  and this field stay put; usage, models and running sessions scroll (wheel,
-  Up/Down, PageUp/PageDown) when there is more than fits.
+  `codeep --prompt-file <path>`, in `~/Work` (a setting). Your prompt is not on
+  that command line: it is in a private file, and only the file's path is (see
+  [Where your prompt goes](#where-your-prompt-goes)). It needs Codeep 3.12.1 or
+  later, and says so when yours is older. The header and this field stay put;
+  usage, models and running sessions scroll (wheel, Up/Down, PageUp/PageDown)
+  when there is more than fits.
 
 Colours come from the shell's own theme tokens, so it reads on a light theme as
 on a dark one. The mark is Codeep's logo (`Codeep.svg`) and the header's mascot
@@ -48,14 +50,19 @@ own red.
 - Omarchy with the shell plugin host (Omarchy 4). Written and tested against
   the 4.0.4 package (Quickshell 0.3.1, Qt 6.11) and read against upstream's
   `quattro` branch of 2026-10-09.
-- **Codeep 3.11.0 or later.** Earlier ones have neither `codeep usage --json`
-  nor the live status files. Install: `omarchy-mise-install
-  github:VladoIvankovic/Codeep codeep`. Update: `mup`.
+- **Codeep 3.11.0 or later** for the usage and the live status: earlier ones
+  have neither `codeep usage --json` nor the status files. **3.12.1 or later**
+  for the Ask field, which hands the prompt over with `codeep --prompt-file`;
+  before that Codeep ignores the flag and would start without it, so the
+  widget checks the version and starts nothing on an older one. Install:
+  `omarchy-mise-install github:VladoIvankovic/Codeep codeep`. Update: `mup`.
 - Codeep's **Share live status with Omarchy plugins** setting (on by default,
   in `/settings`, shown on Omarchy only). With it off the bar mark stays dim
   and the panel lists nothing running; usage and Ask still work.
-- `find`, `timeout`, `head`, `env` and `test` (findutils, coreutils) and
-  `omarchy-launch-tui`, which Omarchy has; `mise`, for a mise-installed Codeep.
+- `find`, `timeout`, `head`, `env`, `test`, `mktemp` and `rm` (findutils,
+  coreutils) and `omarchy-launch-tui`, which Omarchy has; `mise`, for a
+  mise-installed Codeep. `$XDG_RUNTIME_DIR` set in the shell's environment
+  (a login session does that), for the Ask field.
 
 ## Install
 
@@ -67,7 +74,8 @@ omarchy plugin enable codeep.agent --section right --after omarchy.agents
 (`omarchy plugin add <git url> --enable` does both at once and puts the mark in
 its default place, on the right.) A plugin is code that runs inside the shell
 with your rights, so Omarchy asks first and lets you read it before you enable
-it. This one is a few hundred lines; the sections below say what it touches.
+it. This one is about 2,200 lines of QML and JavaScript (`wc -l *.qml
+Model.js`); the sections below say what it touches.
 
 Move it with `omarchy bar move codeep.agent --section left --index 1`, remove it
 with `omarchy plugin remove codeep.agent`.
@@ -86,7 +94,7 @@ boolean). A value of the wrong kind falls back to the default.
 
 | Key | Default | What it does |
 |---|---|---|
-| `unattended` | `false` | **Run unattended (`--yolo`).** A prompt typed in the Ask field starts `codeep --yolo -- "<prompt>"`: Codeep runs without stopping to ask. Off by default; the panel says so in the urgent colour while it is on. A bare launch (right click) is always an ordinary session. If the work folder does not exist, an unattended run is **not started** (the panel says why and keeps your text); it never falls back to your home folder with `--yolo`. |
+| `unattended` | `false` | **Run unattended (`--yolo`).** A prompt typed in the Ask field starts `codeep --yolo --prompt-file <path>`: Codeep runs without stopping to ask. Off by default; the panel says so in the urgent colour while it is on. A bare launch (right click) is always an ordinary session. If the work folder does not exist, an unattended run is **not started** (the panel says why and keeps your text); it never falls back to your home folder with `--yolo`. |
 | `workDir` | `~/Work` | The folder Codeep starts in. Not found, an ordinary run starts in your home folder and an unattended one is refused. |
 | `hideWhenIdle` | `false` | Take the mark off the bar while no Codeep runs. `omarchy-shell codeep.agent toggle` still opens the panel. |
 | `refreshIntervalSec` | `60` | How often usage is read while the panel is open (15 to 3600). |
@@ -105,8 +113,10 @@ It reads:
 
 - `$XDG_STATE_HOME/codeep/sessions/*.json` (default `~/.local/state/codeep/`),
   the small files Codeep 3.11 keeps while it runs: pid, project, state, a short
-  task label, provider and model. No prompt, answer, command or file content is
-  in them.
+  task label, provider and model. The task label is the first five plain words
+  of what you asked (at most 48 characters, paths and file names left out),
+  which is how Codeep itself names a run in a notification: a few words of a
+  prompt can be there, and no answer, command line or file content.
 - `/proc`, to see which pids are alive (and `/proc/self/status` for its own uid).
 - What `codeep --version` and `codeep usage --json` print. Usage comes through
   that command and nothing else: the plugin never opens Codeep's ledger or its
@@ -115,15 +125,18 @@ It reads:
   launcher script (below), and `/proc/<pid>/stat` and `/proc/<pid>/cmdline` of
   the processes that have a status file, to tell Codeep from a process that was
   handed its number.
-- Its own settings, the PATH of the shell it runs in, and `HOME`.
+- Its own settings, the PATH of the shell it runs in, `HOME`, and
+  `XDG_RUNTIME_DIR`.
 
 It starts these processes, each with an argument vector, never a shell string,
 one at a time and under `timeout`: `find` (the status directory, `/proc`, and
 where `codeep` lives), `head -c 512` on what it found, `mise which codeep` when
-only mise launchers were found, `codeep --version`, `codeep usage --json`,
-`test -d` on the work folder, and `omarchy-launch-tui` when you launch Codeep.
-Every Codeep and mise it runs in the background gets `MISE_OFFLINE=1` and
-auto-install off.
+only mise launchers were found, `codeep --version` (in the background, and
+asked again for every Ask: a version left over from an earlier probe is never
+trusted), `codeep usage --json`, `test -d` on the work folder,
+`mktemp` and `rm -f` for the prompt's file (below), and `omarchy-launch-tui`
+when you launch Codeep. Every Codeep and mise it runs in the background gets
+`MISE_OFFLINE=1` and auto-install off. Your prompt is a word of none of them.
 
 It never:
 
@@ -131,15 +144,17 @@ It never:
   or the script `omarchy-mise-install` leaves in `~/.local/bin` (it runs
   `mise use -g` and `mise x`, which fetch Codeep from GitHub), is never run by
   a background probe. When only such a launcher exists, the panel says Codeep
-  is not set up yet; Ask Codeep then starts the launcher, in a terminal, where
-  its install shows;
-- writes a file, not even in its own folder (which would make the shell reload
-  it);
+  is not set up yet; an Ask is refused until then, and a right click on the mark
+  starts the launcher, in a terminal, where its install shows;
+- writes a file except the one private file an Ask hands its prompt over in
+  (below), and that one only in `$XDG_RUNTIME_DIR`: nothing in its own folder,
+  which would make the shell reload it, and nothing in your home folder;
 - reads an API key, a token or Codeep's configuration;
 - puts text it did not write itself through a shell, a login shell, `bar.run`
   or `Util.execArgv`;
 - changes `shell.json` or any setting by itself;
-- sends a prompt anywhere but to the terminal you asked for.
+- sends a prompt anywhere but into that file, and from there to the terminal
+  you asked for.
 
 Codeep, which it runs, keeps its record for Omarchy's own Agents panel up to
 date when it spends tokens; `codeep --version` and `codeep usage --json` do not
@@ -178,10 +193,52 @@ output of `codeep` is only as good as the binary found on PATH.
 `omarchy-launch-tui` runs the terminal through `uwsm-app` and `systemd-run`,
 which treat `$` in a command word the way systemd treats it in a unit file:
 `$$` becomes `$`, `${HOME}` is replaced by its value, and a word starting with
-`$NAME` is replaced or dropped. A prompt such as `$HOME is not set` would reach
-Codeep without its first word. The plugin writes every `$` as `$$` on the way
-in, so Codeep gets exactly what you typed. (`omarchy agent prompt` has the same
-effect on its own prompts; that is Omarchy's, and left alone here.)
+`$NAME` is replaced or dropped. The plugin writes every `$` as `$$` in the words
+it passes, so they arrive as they are. Your prompt used to be one of those words
+and a prompt such as `$HOME is not set` would have lost its first word without
+this; now that the prompt is not on the command line the quirk no longer
+reaches it, and only the Codeep binary's path and the prompt file's path pass
+through it. (`omarchy agent prompt` has the same effect on its own prompts; that
+is Omarchy's, and left alone here.)
+
+## Where your prompt goes
+
+A command line is public: `/proc/<pid>/cmdline` of any process can be read by
+every other user of the machine, and the terminal's and Codeep's sit there for
+as long as they run. Version 1.0.0 put the prompt on it (reported against that
+release); since 1.1.0 it is never a word of any command. An Ask does this, one
+step at a time:
+
+1. `mktemp` makes a file in `$XDG_RUNTIME_DIR` (`/run/user/<uid>`, a tmpfs that
+   only you can enter), named `codeep-prompt-` and ten letters or digits, with
+   mode 0600, owned by you.
+2. The prompt is written into that file, in place, so the mode stays.
+3. The terminal is started with `codeep [--yolo] --prompt-file <that path>`.
+4. Codeep reads the file and removes it. If it is still there after two
+   minutes the plugin removes it (`rm -f`), and it removes it at once when any
+   step fails. Nothing is launched and the text stays in the field.
+
+An environment variable would be private as well, but a terminal that runs as a
+single instance (ghostty, kitty, foot's server) starts its child from its own
+environment, so it would never arrive.
+
+What that does and does not give you, precisely:
+
+- Other users of the machine cannot read your prompt from the process list, or
+  from the terminal's or Codeep's command line.
+- The file is private to your user and lives for a second or two. It is not
+  hidden from root, and not from a process running as you, for as long as it
+  exists.
+- It is only the transport. Once Codeep has the prompt it is part of the session
+  Codeep saves (the project's `.codeep/sessions` or `~/.codeep/sessions`), its
+  first 400 characters go in Codeep's audit log (`.codeep/audit/`, on by
+  default), and its first five plain words name the run in the status file and
+  in the notification when it ends. Those are Codeep's, not this plugin's, and
+  their permissions are Codeep's.
+- A launch with a prompt needs a real Codeep 3.12.1 or later. The launcher
+  script `omarchy-mise-install` leaves behind is only ever started bare (right
+  click), never with a prompt: it cannot be asked its version, and the prompt
+  could not be handed to it privately.
 
 ## Good to know
 
@@ -205,9 +262,14 @@ effect on its own prompts; that is Omarchy's, and left alone here.)
 | The panel says | What to do |
 |---|---|
 | Codeep is not installed. Install it: omarchy-mise-install github:VladoIvankovic/Codeep codeep | Run that. If it is installed somewhere unusual, set `codeepPath`. |
-| Codeep is not set up yet: run codeep once in a terminal | Only the mise launcher was found. Run `codeep` once (Ask Codeep does it): mise installs the real binary. |
+| Codeep is not set up yet: run codeep once in a terminal | Only the mise launcher was found. Right-click the mark, which runs `codeep` once in a terminal: mise installs the real binary. |
+| Codeep is not set up yet: run it once (right click on the mark), then Ask. Nothing was started. | The same, said to an Ask: a prompt is never handed to the launcher. Right-click the mark first. Your text stays in the field. |
 | The work folder ~/Work does not exist, so an unattended run was not started | Create the folder, or `omarchy bar set codeep.agent workDir <folder>`. |
 | Codeep 3.10.2 is too old: usage needs 3.11.0 or later. Update it: mup | Run `mup`. |
+| Codeep 3.12.0 is too old to take the prompt privately: update it (mup). Nothing was started. | Run `mup`. Your text stays in the field, and nothing was started. |
+| There is no private place for the prompt ($XDG_RUNTIME_DIR is not set). Nothing was started. | The shell has no `XDG_RUNTIME_DIR`; a login session sets it. Restart the shell from one (`omarchy-restart-shell`). |
+| Could not make a private file for the prompt / write the prompt to its private file. Nothing was started. | `$XDG_RUNTIME_DIR` is full or not writable: look at `df -h "$XDG_RUNTIME_DIR"`. |
+| Codeep did not answer in time. Nothing was started. | A step took more than 30 seconds. Try again. |
 | Codeep usage failed / printed something unexpected | Run `codeep usage --json` in a terminal and look. |
 | No Codeep running, but one is | Turn on **Share live status with Omarchy plugins** in Codeep's `/settings`. |
 

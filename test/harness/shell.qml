@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import "Model.js" as Model
 
 // An on-device check of the two parts that talk to the system, without the
 // shell's bar: run test/harness/run.sh on an Omarchy machine (or any Linux
@@ -20,6 +21,14 @@ ShellRoot {
     onBinaryChanged: root.say("binary: " + binary)
     onLauncherChanged: root.say("launcher (never probed): " + launcher)
     onVersionChanged: root.say("version: " + version)
+    onVersionPartsChanged: root.say("versionParts: " + JSON.stringify(versionParts)
+      + " (takes --prompt-file: " + (Model.supportsPromptFile(versionParts) ? "yes" : "no") + ")")
+    // What a prompt launch asks (resolve(true)): the path to start and, with it,
+    // the version, asked afresh. Nothing is started here.
+    onBinaryReady: function(path) {
+      root.say("binaryReady for a launch: " + (path === "" ? "(nothing)" : path) + ", version " + (version === "" ? "unknown" : version)
+        + ", gate: " + JSON.stringify(Model.promptGate(binary !== "" && binary === path, versionParts)))
+    }
     onErrorChanged: root.say("error: " + (error === "" ? "(none)" : error))
     onUsageChanged: root.say("usage: " + (usage
       ? "today " + usage.today.tokens + " tokens / " + usage.today.prompts + " prompts, week "
@@ -43,6 +52,13 @@ ShellRoot {
     root.say("status dir: " + scanner.dir)
     root.say("uid known: " + scanner.uidKnown + ", uid " + scanner.uid)
     cli.refresh()
+  }
+
+  // A prompt launch's own questions, after the usage refresh has settled.
+  Timer {
+    interval: 4000
+    running: true
+    onTriggered: cli.resolve(true)
   }
 
   Timer {

@@ -19,6 +19,11 @@ import "Model.js" as Model
 //   version   `codeep --version`. `usage` is only run on 3.11.0 or later:
 //             before that Codeep ignores words it does not know, so
 //             `codeep usage --json` would start the chat instead of failing.
+//             A launch with a prompt asks it too (resolve(true)), afresh for
+//             that Ask: the prompt goes to Codeep in a file (`--prompt-file`,
+//             3.12.1), which an older one would ignore and start without the
+//             prompt. If a step fails before that fresh answer, no version is
+//             left standing and the gate in Widget.qml refuses.
 //   usage     `codeep usage --json`, one JSON document, validated by
 //             Model.parseUsage.
 //
@@ -46,12 +51,18 @@ Item {
   property var usage: null
   property string error: ""
   property string version: ""
+  // The same, parsed ([major, minor, patch]), or null when it is not known:
+  // never asked, or the answer was not a version. The launch reads it.
+  property var versionParts: null
   property bool loading: false
 
   // "", "find", "peek", "which", "version", "usage"
   property string step: ""
   property bool wantUsage: false
   property bool wantBinary: false
+  // A launch with a prompt wants the version too, and asked for it afresh.
+  property bool wantVersion: false
+  property bool versionFresh: false
   property bool versionOk: false
 
   // Discovery state, reset by forget().
@@ -76,8 +87,19 @@ Item {
     root.pump()
   }
 
-  function resolve() {
+  // Where to start Codeep, and with `needVersion` what version it is, asked
+  // now (a prompt launch). Answers through binaryReady, and versionParts.
+  function resolve(needVersion) {
     root.wantBinary = true
+    root.wantVersion = needVersion === true
+    root.versionFresh = false
+    // Nothing usable yet, or a binary that was too old (or unknown) when it
+    // was last asked: look again from the start. Codeep may have been set up or
+    // updated since, and a version manager's path moves with the version.
+    if (root.step === "" && (root.binary === ""
+        || (root.wantVersion && !Model.supportsPromptFile(root.versionParts)))) {
+      root.forget()
+    }
     root.pump()
   }
 
@@ -85,6 +107,7 @@ Item {
     root.binary = ""
     root.launcher = ""
     root.versionOk = false
+    root.versionParts = null
     root.searched = false
     root.whichTried = false
     root.candidates = []
@@ -102,8 +125,12 @@ Item {
     root.step = ""
     root.loading = false
     var hadBinaryWanted = root.wantBinary
+    // A launch that wanted the version and did not get a fresh one must not be
+    // answered with an older one (Widget's gate also checks versionFresh).
+    if (root.wantVersion && !root.versionFresh) root.versionParts = null
     root.wantUsage = false
     root.wantBinary = false
+    root.wantVersion = false
     // What there is to start, as far as it is known: a failed `usage` is no
     // reason not to launch.
     if (hadBinaryWanted) root.binaryReady(root.launchPath)
@@ -117,7 +144,7 @@ Item {
   // Only a launcher was found: Codeep is there to be started, not to be asked.
   function notSetUp() {
     root.binary = ""
-    root.fail("Codeep is not set up yet: run codeep once in a terminal (Ask Codeep does that), then this shows its usage.")
+    root.fail("Codeep is not set up yet: run codeep once in a terminal (a right click on the mark does that), then this shows its usage.")
   }
 
   function start(step, argv, seconds) {
@@ -151,8 +178,16 @@ Item {
       return
     }
 
+    // Launching Codeep, with a prompt: its version, asked now, before the
+    // path is given out. The answer is read from versionParts.
+    if (root.wantVersion && !root.versionFresh) {
+      root.start("version", Model.probeArgv(root.binary, ["--version"]), 10)
+      return
+    }
+
     // Only the path was wanted (launching Codeep).
     root.wantBinary = false
+    root.wantVersion = false
     root.binaryReady(root.launchPath)
   }
 
@@ -232,13 +267,19 @@ Item {
     if (code === 127 || code === 126) { root.missing(); return }
 
     if (step === "version") {
+      root.versionFresh = true
       var v = Model.parseVersion(output)
       if (code !== 0 || v === null) {
+        root.versionParts = null
+        root.version = ""
+        root.versionOk = false
         root.fail("Codeep did not say its version (exit " + code + "). Update it: mup")
         return
       }
+      root.versionParts = v
       root.version = Model.versionText(v)
       if (!Model.versionAtLeast(v, Model.MIN_CODEEP)) {
+        root.versionOk = false
         root.fail("Codeep " + root.version + " is too old: usage needs " + Model.versionText(Model.MIN_CODEEP) + " or later. Update it: mup")
         return
       }

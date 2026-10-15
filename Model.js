@@ -20,7 +20,16 @@ var MAX_USAGE_BYTES = 262144
 // Longest pid Linux hands out (pid_max can be raised to 2^22).
 var MAX_PID = 4194304
 
+// `codeep usage --json` and the live status files.
 var MIN_CODEEP = [3, 11, 0]
+// `codeep --prompt-file <path>`. Before it Codeep knows neither word: the flag
+// is ignored, the path is a stray word, and it starts without the prompt.
+var PROMPT_FILE_MIN_CODEEP = [3, 12, 1]
+// What the Ask field may hand over, in characters.
+var MAX_PROMPT_CHARS = 4000
+// How long a prompt file may sit unread before the plugin removes it itself.
+// Codeep removes it as it reads it, which is within a second or two.
+var PROMPT_FILE_TTL_MS = 120000
 
 // ---------------------------------------------------------------- coercion
 
@@ -361,6 +370,11 @@ function versionText(v) {
   return v ? v[0] + "." + v[1] + "." + v[2] : ""
 }
 
+// Whether a parsed version of Codeep can take its prompt from a file.
+function supportsPromptFile(v) {
+  return versionAtLeast(v, PROMPT_FILE_MIN_CODEEP)
+}
+
 // The directories to look for `codeep` in, in the order a shell would: PATH as
 // the shell process has it, then the places a version manager or a user
 // install leaves it that a service-started process often does not have on
@@ -444,31 +458,167 @@ var APP_ID = "org.omarchy.codeep"
 // through `systemd-run --scope`, which does with every word what systemd does
 // with a unit's command line: "$$" becomes "$", "${NAME}" is replaced by the
 // variable's value, and a word that starts with "$NAME" is replaced by the
-// variable, split at spaces, or dropped when NAME is not a name. A prompt such
-// as "$HOME is not set" would arrive without its first word. Doubling every "$"
-// turns each of those into the literal character. Nothing else is touched:
-// quotes, backslashes, newlines, "%", "--" all pass through verbatim.
+// variable, split at spaces, or dropped when NAME is not a name. A path such as
+// "/run/user/$1000/x" would arrive changed. Doubling every "$" turns each of
+// those into the literal character. Nothing else is touched: quotes,
+// backslashes, newlines, "%", "--" all pass through verbatim. (The prompt is no
+// longer one of these words, see launchArgv; the path still is.)
 function forSystemdRun(word) {
   return word.replace(/\$/g, "$$$$")
 }
 
-// The words of the command that opens Codeep in a terminal, or null when there
-// is nothing to run. One element per word and no shell anywhere: the prompt is
-// the last element, after `--`, so it is one argv word to Codeep whatever it
-// contains. `binary` must be an absolute path (resolved by the caller).
-// `--yolo` is for a launch that has a prompt to run: a bare launch (the right
-// click) is an ordinary session, whatever the setting says.
-function launchArgv(binary, prompt, unattended) {
-  if (typeof binary !== "string" || binary.charAt(0) !== "/") return null
-  var text = typeof prompt === "string" ? prompt.replace(/\u0000/g, "").trim() : ""
-  if (text.length > 4000) text = text.slice(0, 4000)
-  var argv = ["omarchy-launch-tui", "--app-id=" + APP_ID, forSystemdRun(binary)]
-  if (text !== "") {
-    if (unattended === true) argv.push("--yolo")
-    argv.push("--")
-    argv.push(forSystemdRun(text))
+// ---- the prompt, and the file it travels in
+//
+// The words of a command are public: any local user can read
+// /proc/<pid>/cmdline of any process, the terminal's and Codeep's included. So
+// the prompt never becomes a word. It is written to a file that only this user
+// can open (`mktemp` makes it with mode 0600 in $XDG_RUNTIME_DIR, a 0700
+// tmpfs), and only the file's path goes on the command line:
+// `codeep --prompt-file <path>` (Codeep 3.12.1). Codeep removes the file when
+// it has read it. An environment variable would be private too, but a terminal
+// that runs as a single instance starts its child from the server's
+// environment, so it would not arrive.
+
+// What Codeep removes after reading: a launcher's own temp file by name.
+var PROMPT_FILE_NAME = /^codeep-prompt-[A-Za-z0-9]{6,}$/
+// What `mktemp codeep-prompt-XXXXXXXXXX` makes.
+var PROMPT_FILE_MADE = /^codeep-prompt-[A-Za-z0-9]{10}$/
+
+// What the Ask field's text becomes before anything is decided about it: no
+// NUL, no white space at the ends, at most 4,000 characters, and never half of
+// a surrogate pair at the cut.
+function cleanPrompt(text) {
+  var t = typeof text === "string" ? text.replace(/\u0000/g, "").trim() : ""
+  if (t.length > MAX_PROMPT_CHARS) {
+    t = t.slice(0, MAX_PROMPT_CHARS)
+    var last = t.charCodeAt(t.length - 1)
+    if (last >= 0xd800 && last <= 0xdbff) t = t.slice(0, -1)
   }
+  return t
+}
+
+// A directory as a prefix: absolute, one line, no trailing "/". "" for
+// anything else, and for "/" itself.
+function dirPrefix(dir) {
+  if (typeof dir !== "string" || dir.charAt(0) !== "/" || /[\u0000\n\r]/.test(dir)) return ""
+  // "." and ".." segments are refused here too: a file made in such a
+  // directory would be one launchArgv and removeArgv refuse to name.
+  var segments = dir.split("/")
+  if (segments.indexOf("..") !== -1 || segments.indexOf(".") !== -1) return ""
+  return dir.replace(/\/+$/, "")
+}
+
+// The `mktemp` that makes the file: `mktemp -p <dir> codeep-prompt-XXXXXXXXXX`
+// prints its path. `dir` is $XDG_RUNTIME_DIR; null when that is not a usable
+// absolute directory, in which case there is nowhere private to put a prompt.
+function promptFileTemplate(runtimeDir) {
+  var dir = dirPrefix(runtimeDir)
+  if (dir === "") return null
+  return ["mktemp", "-p", dir, "codeep-prompt-XXXXXXXXXX"]
+}
+
+// Whether `path` is exactly what that `mktemp` makes in `runtimeDir`:
+// `<dir>/codeep-prompt-` and ten letters or digits, nothing before or after.
+function isPromptFilePath(path, runtimeDir) {
+  var dir = dirPrefix(runtimeDir)
+  if (dir === "" || typeof path !== "string") return false
+  if (path.indexOf(dir + "/") !== 0) return false
+  return PROMPT_FILE_MADE.test(path.slice(dir.length + 1))
+}
+
+// `mktemp`'s output as the path it made, or "": its one line, with the one
+// newline it ends in taken off, and validated as isPromptFilePath does.
+function promptFileFromOutput(output, runtimeDir) {
+  if (typeof output !== "string" || output.length > 4200) return ""
+  var line = output.charAt(output.length - 1) === "\n" ? output.slice(0, -1) : output
+  return isPromptFilePath(line, runtimeDir) ? line : ""
+}
+
+// A path that may go on a command line as a prompt file, or be removed: of the
+// shape the plugin itself makes (see PROMPT_FILE_NAME), absolute, one line,
+// without a ".." segment.
+function isPromptFileArg(path) {
+  if (typeof path !== "string" || path.length === 0 || path.length > 4096) return false
+  if (path.charAt(0) !== "/" || /[\u0000\n\r]/.test(path)) return false
+  var parts = path.split("/")
+  if (parts.indexOf("..") !== -1) return false
+  return PROMPT_FILE_NAME.test(parts[parts.length - 1])
+}
+
+// The words of the command that opens Codeep in a terminal, or null when it
+// must not be run. One element per word and no shell anywhere. `binary` must be
+// an absolute path (resolved by the caller). `promptFile` is the path of the
+// private file the prompt is in, and nothing else: never text. With no path
+// (null, undefined or "") it is the bare launch, an ordinary session; with a
+// path that is not one of ours it is null, so a prompt cannot end up in an
+// argument by being passed here. `--yolo` is for a launch that has a prompt to
+// run: a bare launch (the right click) is an ordinary session, whatever the
+// setting says.
+function launchArgv(binary, promptFile, unattended) {
+  if (typeof binary !== "string" || binary.charAt(0) !== "/") return null
+  var argv = ["omarchy-launch-tui", "--app-id=" + APP_ID, forSystemdRun(binary)]
+  if (promptFile === undefined || promptFile === null || promptFile === "") return argv
+  if (!isPromptFileArg(promptFile)) return null
+  if (unattended === true) argv.push("--yolo")
+  argv.push("--prompt-file")
+  argv.push(forSystemdRun(promptFile))
   return argv
+}
+
+// `rm -f -- <path>`, for a file of ours; null for anything else, so this can
+// never be made to remove another file.
+function removeArgv(path) {
+  return isPromptFileArg(path) ? ["rm", "-f", "--", path] : null
+}
+
+// Whether a prompt may be handed over now, and what to say when not. The
+// version is that of the real binary, parsed; `realBinary` is false when only
+// the launcher that installs Codeep was found (it cannot be asked anything, and
+// a prompt cannot be handed to it privately). Returns { ok: true } or
+// { ok: false, reason }.
+function promptGate(realBinary, version) {
+  if (realBinary !== true) {
+    return { ok: false, reason: "Codeep is not set up yet: run it once (right click on the mark), then Ask. Nothing was started." }
+  }
+  if (!Array.isArray(version)) {
+    return { ok: false, reason: "Could not tell which version of Codeep this is, so the prompt was not handed over. Update it: mup. Nothing was started." }
+  }
+  if (!supportsPromptFile(version)) {
+    return {
+      ok: false,
+      reason: "Codeep " + versionText(version) + " is too old to take the prompt privately: update it (mup). Nothing was started."
+    }
+  }
+  return { ok: true }
+}
+
+// ---- files waiting to be removed
+//
+// Codeep removes the file as it reads it. A file it never read (the terminal
+// did not open, Codeep was too old after all, the launch failed) would stay
+// until the session ends, so the plugin removes it after PROMPT_FILE_TTL_MS
+// itself. Several can wait at once: one Ask after another is two files.
+
+// The list with `path` added, due `PROMPT_FILE_TTL_MS` after `now`. Anything
+// that is not one of our paths is not added.
+function pendingAdd(list, path, now) {
+  var next = Array.isArray(list) ? list.slice() : []
+  if (isPromptFileArg(path)) next.push({ path: path, due: now + PROMPT_FILE_TTL_MS })
+  return next
+}
+
+// Splits the list at `now` into the paths that are due and the entries that
+// still wait.
+function pendingSweep(list, now) {
+  var due = []
+  var keep = []
+  if (!Array.isArray(list)) return { due: due, keep: keep }
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i]
+    if (e && typeof e.path === "string" && now >= e.due && due.indexOf(e.path) === -1) due.push(e.path)
+    else if (e && typeof e.path === "string" && now < e.due) keep.push(e)
+  }
+  return { due: due, keep: keep }
 }
 
 // "/home/u/Work" as "~/Work": a prefix, on a path boundary, not the first place
@@ -486,7 +636,7 @@ function tildePath(path, home) {
 // home folder, and a bare launch (no prompt) is an ordinary session anyway.
 // Returns { ok: true, dir, unattended } or { ok: false, reason }.
 function launchPlan(prompt, unattended, workDir, workDirExists, home) {
-  var text = typeof prompt === "string" ? prompt.replace(/\u0000/g, "").trim() : ""
+  var text = cleanPrompt(prompt)
   var wantsYolo = unattended === true && text !== ""
   if (workDirExists === true) return { ok: true, dir: workDir, unattended: wantsYolo }
   if (wantsYolo) {

@@ -339,35 +339,220 @@ test('firstPath takes the first absolute line', () => {
   assert.equal(M.firstPath('codeep\n'), '');
 });
 
-test('launchArgv: the prompt is one word, last, after `--`', () => {
-  const hostile = '`id` "quoted" \'single\' --flag -p x\nsecond line; & | < > % \\ end';
-  const argv = M.launchArgv('/home/u/.local/share/mise/shims/codeep', hostile, false);
-  assert.deepEqual(argv, ['omarchy-launch-tui', '--app-id=org.omarchy.codeep', '/home/u/.local/share/mise/shims/codeep', '--', hostile]);
-  assert.deepEqual(M.launchArgv('/usr/bin/codeep', 'hi', true), ['omarchy-launch-tui', '--app-id=org.omarchy.codeep', '/usr/bin/codeep', '--yolo', '--', 'hi']);
-  assert.deepEqual(M.launchArgv('/usr/bin/codeep', '', false), ['omarchy-launch-tui', '--app-id=org.omarchy.codeep', '/usr/bin/codeep']);
+const BIN = '/usr/bin/codeep';
+const RUN = '/run/user/1000';
+const FILE = `${RUN}/codeep-prompt-AbC123xyz0`;
+const LAUNCH = ['omarchy-launch-tui', '--app-id=org.omarchy.codeep'];
+
+test('launchArgv: a bare launch has no prompt file and no --yolo', () => {
+  assert.deepEqual(M.launchArgv(BIN, '', false), [...LAUNCH, BIN]);
+  assert.deepEqual(M.launchArgv(BIN, null, true), [...LAUNCH, BIN]);
+  assert.deepEqual(M.launchArgv(BIN, undefined, true), [...LAUNCH, BIN]);
   // A bare launch is an ordinary session even with the setting on.
-  assert.deepEqual(M.launchArgv('/usr/bin/codeep', '', true), ['omarchy-launch-tui', '--app-id=org.omarchy.codeep', '/usr/bin/codeep']);
-  assert.deepEqual(M.launchArgv('/usr/bin/codeep', '   ', true), ['omarchy-launch-tui', '--app-id=org.omarchy.codeep', '/usr/bin/codeep']);
-  assert.equal(M.launchArgv('codeep', 'hi', false), null);    // not absolute: not resolved
-  assert.equal(M.launchArgv('', 'hi', false), null);
-  assert.equal(M.launchArgv('/usr/bin/codeep', 'x'.repeat(9000), false).pop().length, 4000);
+  assert.deepEqual(M.launchArgv('/home/u/.local/share/mise/shims/codeep', '', true), [...LAUNCH, '/home/u/.local/share/mise/shims/codeep']);
+});
+
+test('launchArgv: with a prompt file, only its path goes on the line, after --prompt-file', () => {
+  assert.deepEqual(M.launchArgv(BIN, FILE, false), [...LAUNCH, BIN, '--prompt-file', FILE]);
+  assert.deepEqual(M.launchArgv(BIN, FILE, true), [...LAUNCH, BIN, '--yolo', '--prompt-file', FILE]);
+  assert.equal(M.launchArgv('codeep', FILE, false), null);     // binary not absolute: not resolved
+  assert.equal(M.launchArgv('', FILE, false), null);
 });
 
 test('unattended is a strict boolean: only the real `true` adds --yolo', () => {
-  assert.ok(!M.launchArgv('/usr/bin/codeep', 'hi', 'true').includes('--yolo'));
-  assert.ok(!M.launchArgv('/usr/bin/codeep', 'hi', 1).includes('--yolo'));
-  assert.ok(M.launchArgv('/usr/bin/codeep', 'hi', true).includes('--yolo'));
+  assert.ok(!M.launchArgv(BIN, FILE, 'true').includes('--yolo'));
+  assert.ok(!M.launchArgv(BIN, FILE, 1).includes('--yolo'));
+  assert.ok(M.launchArgv(BIN, FILE, true).includes('--yolo'));
 });
 
-test('launchArgv doubles every $ because systemd-run reads one in every word', () => {
-  const at = prompt => M.launchArgv('/usr/bin/codeep', prompt, false).pop();
-  assert.equal(at('$HOME is where'), '$$HOME is where');
-  assert.equal(at('${HOME}/x and $(touch /tmp/p)'), '$${HOME}/x and $$(touch /tmp/p)');
-  assert.equal(at('cost $$5'), 'cost $$$$5');
-  assert.equal(at('$'), '$$');
-  assert.equal(at('no dollar'), 'no dollar');
-  // The binary path too, though it should never hold one.
-  assert.equal(M.launchArgv('/opt/$x/codeep', '', false)[2], '/opt/$$x/codeep');
+test('launchArgv takes a path and never text: anything else is refused, not passed along', () => {
+  const hostile = '`id` "quoted" \'single\' --flag -p x\nsecond line; & | < > % \\ end';
+  for (const text of [hostile, 'hi', 'fix the bug', 'codeep-prompt-AbC123xyz0', '/fix the bug', '/commit']) {
+    assert.equal(M.launchArgv(BIN, text, true), null, JSON.stringify(text));
+  }
+  // The path has to be one of ours: absolute, one line, the name mktemp makes.
+  for (const path of [
+    'codeep-prompt-AbC123xyz0', './codeep-prompt-AbC123xyz0', `${RUN}/other-file`, `${RUN}/codeep-prompt-`,
+    `${RUN}/codeep-prompt-abc`, `${RUN}/codeep-prompt-abc.txt`, `${RUN}/codeep-prompt-ab c123`,
+    `${RUN}/../etc/codeep-prompt-AbC123xyz0`, `${RUN}/codeep-prompt-AbC123xyz0\n--yolo`,
+    `${RUN}/codeep-prompt-AbC123\0xyz0`, `${RUN}/codeep-prompt-AbC123xyz0/`, `${RUN}/codeep-prompt-AbC123xyz0 x`,
+    // A line break or NUL in a directory part: the name is fine, the path is two lines.
+    '/run/user/1000\n/codeep-prompt-AbC123xyz0', '/run/user\r/1000/codeep-prompt-AbC123xyz0', '/run/\0user/1000/codeep-prompt-AbC123xyz0',
+    '/', '   ', 42, {}, ['/run/user/1000/codeep-prompt-AbC123xyz0'],
+  ]) {
+    assert.equal(M.launchArgv(BIN, path, false), null, JSON.stringify(path));
+  }
+});
+
+test('launchArgv accepts the names Codeep removes (six or more letters and digits)', () => {
+  assert.ok(M.launchArgv(BIN, `${RUN}/codeep-prompt-abcdef`, false));
+  assert.ok(M.launchArgv(BIN, `/tmp/codeep-prompt-${'a'.repeat(40)}`, false));
+});
+
+test('launchArgv doubles every $ in a word because systemd-run reads one in every word', () => {
+  // A runtime directory with a $ in it must arrive as it is.
+  const argv = M.launchArgv('/opt/$x/codeep', '/run/user/$1000/codeep-prompt-AbC123xyz0', false);
+  assert.equal(argv[2], '/opt/$$x/codeep');
+  assert.equal(argv.at(-1), '/run/user/$$1000/codeep-prompt-AbC123xyz0');
+  assert.deepEqual(M.launchArgv('/opt/$x/codeep', '', false)[2], '/opt/$$x/codeep');
+  assert.equal(M.launchArgv(BIN, '/tmp/${HOME}/codeep-prompt-AbC123xyz0', false).at(-1), '/tmp/$${HOME}/codeep-prompt-AbC123xyz0');
+});
+
+test('cleanPrompt: no NUL, trimmed, at most 4,000 characters, never half a surrogate pair', () => {
+  assert.equal(M.cleanPrompt('  fix it \n'), 'fix it');
+  assert.equal(M.cleanPrompt('a\0b\0'), 'ab');
+  assert.equal(M.cleanPrompt('line one\nline two'), 'line one\nline two');
+  assert.equal(M.cleanPrompt('   '), '');
+  assert.equal(M.cleanPrompt(null), '');
+  assert.equal(M.cleanPrompt(undefined), '');
+  assert.equal(M.cleanPrompt(42), '');
+  assert.equal(M.cleanPrompt('x'.repeat(9000)).length, 4000);
+  assert.equal(M.cleanPrompt('x'.repeat(4000)).length, 4000);
+  // 3,999 letters and then an emoji (two UTF-16 units): the cut falls inside it.
+  const cut = M.cleanPrompt('x'.repeat(3999) + '\u{1F680}' + 'tail');
+  assert.equal(cut, 'x'.repeat(3999));
+  assert.doesNotMatch(cut, /[\ud800-\udbff]$/);
+  // The pair is kept whole when it fits.
+  assert.equal(M.cleanPrompt('x'.repeat(3998) + '\u{1F680}').length, 4000);
+});
+
+test('PROMPT_FILE_MIN_CODEEP is 3.12.1, and supportsPromptFile says who has --prompt-file', () => {
+  assert.deepEqual(M.PROMPT_FILE_MIN_CODEEP, [3, 12, 1]);
+  assert.equal(M.supportsPromptFile([3, 12, 1]), true);
+  assert.equal(M.supportsPromptFile([3, 12, 2]), true);
+  assert.equal(M.supportsPromptFile([3, 13, 0]), true);
+  assert.equal(M.supportsPromptFile([4, 0, 0]), true);
+  assert.equal(M.supportsPromptFile([3, 12, 0]), false);
+  assert.equal(M.supportsPromptFile([3, 11, 9]), false);
+  assert.equal(M.supportsPromptFile([2, 99, 99]), false);
+  assert.equal(M.supportsPromptFile(null), false);
+  assert.equal(M.supportsPromptFile(undefined), false);
+  // `usage` and the prompt file have their own floors.
+  assert.deepEqual(M.MIN_CODEEP, [3, 11, 0]);
+  assert.equal(M.versionAtLeast([3, 11, 0], M.MIN_CODEEP), true);
+  assert.equal(M.supportsPromptFile([3, 11, 0]), false);
+});
+
+test('promptGate: a prompt goes only to a real binary that has --prompt-file', () => {
+  assert.deepEqual(M.promptGate(true, [3, 12, 1]), { ok: true });
+  assert.deepEqual(M.promptGate(true, [3, 12, 2]), { ok: true });
+  const old = M.promptGate(true, [3, 12, 0]);
+  assert.equal(old.ok, false);
+  assert.equal(old.reason, 'Codeep 3.12.0 is too old to take the prompt privately: update it (mup). Nothing was started.');
+  assert.match(M.promptGate(true, [3, 10, 2]).reason, /^Codeep 3\.10\.2 is too old to take the prompt privately/);
+  // The launcher that installs Codeep cannot be asked, and a prompt is never handed to it.
+  const launcher = M.promptGate(false, null);
+  assert.equal(launcher.ok, false);
+  assert.match(launcher.reason, /not set up yet: run it once/);
+  assert.equal(M.promptGate(false, [3, 12, 1]).ok, false);
+  // A version that was not read is not a version that has it.
+  const unknown = M.promptGate(true, null);
+  assert.equal(unknown.ok, false);
+  assert.match(unknown.reason, /^Could not tell which version of Codeep this is/);
+  assert.match(unknown.reason, /Nothing was started/);
+  assert.equal(M.promptGate(true, 'v3.12.1').ok, false);
+  assert.equal(M.promptGate('yes', [3, 12, 1]).ok, false);
+});
+
+test('promptFileTemplate: mktemp in the runtime directory, or nothing', () => {
+  assert.deepEqual(M.promptFileTemplate(RUN), ['mktemp', '-p', RUN, 'codeep-prompt-XXXXXXXXXX']);
+  assert.deepEqual(M.promptFileTemplate('/run/user/1000/'), ['mktemp', '-p', RUN, 'codeep-prompt-XXXXXXXXXX']);
+  assert.deepEqual(M.promptFileTemplate('/run/user/$1000'), ['mktemp', '-p', '/run/user/$1000', 'codeep-prompt-XXXXXXXXXX']);
+  for (const dir of ['', 'run/user/1000', './x', '~/x', '/', '//', '/run/user/1000\n', '/run/user\r/1000', '/run/\0user', null, undefined, 42, {}]) {
+    assert.equal(M.promptFileTemplate(dir), null, JSON.stringify(dir));
+  }
+});
+
+test('isPromptFilePath: exactly <dir>/codeep-prompt- and ten letters or digits', () => {
+  assert.equal(M.isPromptFilePath(FILE, RUN), true);
+  assert.equal(M.isPromptFilePath(FILE, RUN + '/'), true);
+  assert.equal(M.isPromptFilePath('/run/user/1000/codeep-prompt-0123456789', RUN), true);
+  for (const path of [
+    `${RUN}/codeep-prompt-AbC123xyz`,           // nine
+    `${RUN}/codeep-prompt-AbC123xyz01`,         // eleven
+    `${RUN}/codeep-prompt-AbC123xy_0`,
+    `${RUN}/codeep-prompt-AbC123xy.0`,
+    `${RUN}/codeep-prompt-AbC123xyz0\n`,        // mktemp's newline is not part of the path
+    `${RUN}/codeep-prompt-AbC123xyz0 `,
+    `${RUN}/sub/codeep-prompt-AbC123xyz0`,
+    `${RUN}//codeep-prompt-AbC123xyz0`,
+    `/run/user/1001/codeep-prompt-AbC123xyz0`,  // not this directory
+    `/tmp/codeep-prompt-AbC123xyz0`,
+    `${RUN}x/codeep-prompt-AbC123xyz0`,
+    `${RUN}/Codeep-prompt-AbC123xyz0`,
+    `${RUN}/xcodeep-prompt-AbC123xyz0`,
+    `${RUN}/codeep-prompt-`,
+    '', null, undefined, 7,
+  ]) {
+    assert.equal(M.isPromptFilePath(path, RUN), false, JSON.stringify(path));
+  }
+  assert.equal(M.isPromptFilePath(FILE, ''), false);
+  assert.equal(M.isPromptFilePath(FILE, 'run/user/1000'), false);
+  assert.equal(M.isPromptFilePath(FILE, null), false);
+  // What the template makes is what the check accepts, in any directory it can name.
+  assert.equal(M.isPromptFilePath('/codeep-prompt-AbC123xyz0', '/'), false);
+});
+
+test('promptFileFromOutput: one line, with the one newline mktemp ends it with taken off', () => {
+  assert.equal(M.promptFileFromOutput(FILE + '\n', RUN), FILE);
+  assert.equal(M.promptFileFromOutput(FILE, RUN), FILE);                // no newline at all is fine
+  assert.equal(M.promptFileFromOutput(FILE + '\n\n', RUN), '');         // exactly one
+  assert.equal(M.promptFileFromOutput(FILE + '\r\n', RUN), '');
+  assert.equal(M.promptFileFromOutput(' ' + FILE + '\n', RUN), '');
+  assert.equal(M.promptFileFromOutput(FILE + '\nmore\n', RUN), '');
+  assert.equal(M.promptFileFromOutput('mktemp: failed to create file via template\n', RUN), '');
+  assert.equal(M.promptFileFromOutput('/tmp/codeep-prompt-AbC123xyz0\n', RUN), '');
+  assert.equal(M.promptFileFromOutput('', RUN), '');
+  assert.equal(M.promptFileFromOutput(null, RUN), '');
+  assert.equal(M.promptFileFromOutput('x'.repeat(5000), RUN), '');
+});
+
+test('removeArgv removes only a file of ours, with -f and --', () => {
+  assert.deepEqual(M.removeArgv(FILE), ['rm', '-f', '--', FILE]);
+  assert.deepEqual(M.removeArgv('/tmp/codeep-prompt-abcdef'), ['rm', '-f', '--', '/tmp/codeep-prompt-abcdef']);
+  for (const path of ['/home/u/.bashrc', '/', '/run/user/1000', `${RUN}/*`, `${RUN}/codeep-prompt-*`, 'codeep-prompt-AbC123xyz0',
+    `${RUN}/../codeep-prompt-AbC123xyz0`, `${RUN}/codeep-prompt-AbC123xyz0\n/etc/passwd`, '-rf', '', null, undefined]) {
+    assert.equal(M.removeArgv(path), null, JSON.stringify(path));
+  }
+});
+
+test('pending files: several wait at once and each goes at its own time', () => {
+  assert.equal(M.PROMPT_FILE_TTL_MS, 120000);
+  const a = `${RUN}/codeep-prompt-AaAaAaAaAa`;
+  const b = `${RUN}/codeep-prompt-BbBbBbBbBb`;
+  let list = M.pendingAdd([], a, 1000);
+  list = M.pendingAdd(list, b, 61000);            // a second Ask a minute later
+  assert.deepEqual(list, [{ path: a, due: 121000 }, { path: b, due: 181000 }]);
+  assert.deepEqual(M.pendingSweep(list, 120999), { due: [], keep: list });
+  assert.deepEqual(M.pendingSweep(list, 121000), { due: [a], keep: [{ path: b, due: 181000 }] });
+  assert.deepEqual(M.pendingSweep(list, 500000), { due: [a, b], keep: [] });
+  // Not ours: not kept for removal either. Bad lists are empty ones.
+  assert.deepEqual(M.pendingAdd([], '/home/u/.bashrc', 0), []);
+  assert.deepEqual(M.pendingAdd(null, a, 0), [{ path: a, due: 120000 }]);
+  assert.deepEqual(M.pendingSweep(null, 0), { due: [], keep: [] });
+  // The input list is not changed.
+  const before = JSON.stringify(list);
+  M.pendingAdd(list, a, 5);
+  M.pendingSweep(list, 999999);
+  assert.equal(JSON.stringify(list), before);
+});
+
+test('what a launch is made of: the prompt text is in no argv the model builds', () => {
+  const secret = 'rotate the signing key; then `rm -rf $HOME` "quietly" --yolo \n and tell nobody';
+  const prompt = M.cleanPrompt(`  ${secret}  `);
+  const plan = M.launchPlan(prompt, true, '/home/u/Work', true, '/home/u');
+  assert.equal(plan.ok, true);
+  assert.equal(plan.unattended, true);
+  const make = M.promptFileTemplate(RUN);
+  const path = M.promptFileFromOutput(FILE + '\n', RUN);
+  const argvs = [make, M.launchArgv(BIN, path, plan.unattended), M.removeArgv(path), M.launchArgv(BIN, '', false)];
+  for (const argv of argvs) assert.ok(Array.isArray(argv));
+  const everything = JSON.stringify(argvs);
+  for (const piece of ['rotate', 'signing', 'quietly', 'tell nobody', 'rm -rf']) assert.ok(!everything.includes(piece), piece);
+  // ...and the only place the text can be put on a line is refused.
+  assert.equal(M.launchArgv(BIN, prompt, true), null);
+  assert.equal(M.removeArgv(prompt), null);
+  assert.equal(M.promptFileTemplate(prompt), null);
 });
 
 // ---- launchers: nothing that installs is run by a probe
@@ -498,4 +683,17 @@ test('launchPlan: a missing work folder never turns into --yolo in the home fold
   assert.deepEqual(M.launchPlan('hi', false, '/w', false, ''), { ok: true, dir: '/', unattended: false });
   // Only the real boolean asks for it.
   assert.equal(M.launchPlan('hi', 'true', '/w', true, '/h').unattended, false);
+});
+
+test('a runtime directory with "." or ".." segments yields no template: a file made there could not be passed or removed', () => {
+  for (const dir of ['/run/user/1000/../1000', '/run/./user/1000', '/..', '/run/user/1000/.']) {
+    assert.equal(M.promptFileTemplate(dir), null, dir);
+  }
+  // Whatever template there is, its file can be named for launch and for removal.
+  const template = M.promptFileTemplate('/run/user/1000');
+  assert.ok(template);
+  const path = M.promptFileFromOutput('/run/user/1000/codeep-prompt-AbC123xyz9\n', '/run/user/1000');
+  assert.ok(path);
+  assert.ok(M.removeArgv(path));
+  assert.ok(M.launchArgv('/usr/bin/codeep', path, false));
 });
