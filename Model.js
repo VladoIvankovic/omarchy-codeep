@@ -22,6 +22,14 @@ var MAX_PID = 4194304
 
 // `codeep usage --json` and the live status files.
 var MIN_CODEEP = [3, 11, 0]
+
+// The Codeep this plugin was reviewed and tested with, and the install command
+// the plugin names wherever it tells you to install or update Codeep. The
+// command pins that version: `github:VladoIvankovic/Codeep` alone resolves to
+// whatever the latest GitHub release is on the day, and a release can be
+// replaced. The plugin itself never downloads, installs or updates Codeep.
+var REVIEWED_CODEEP = "3.12.1"
+var INSTALL_COMMAND = "omarchy-mise-install github:VladoIvankovic/Codeep@" + REVIEWED_CODEEP + " codeep"
 // `codeep --prompt-file <path>`. Before it Codeep knows neither word: the flag
 // is ignored, the path is a stray word, and it starts without the prompt.
 var PROMPT_FILE_MIN_CODEEP = [3, 12, 1]
@@ -581,12 +589,12 @@ function promptGate(realBinary, version) {
     return { ok: false, reason: "Codeep is not set up yet: run it once (right click on the mark), then Ask. Nothing was started." }
   }
   if (!Array.isArray(version)) {
-    return { ok: false, reason: "Could not tell which version of Codeep this is, so the prompt was not handed over. Update it: mup. Nothing was started." }
+    return { ok: false, reason: "Could not tell which version of Codeep this is, so the prompt was not handed over. Install " + REVIEWED_CODEEP + " or later (README: Install). Nothing was started." }
   }
   if (!supportsPromptFile(version)) {
     return {
       ok: false,
-      reason: "Codeep " + versionText(version) + " is too old to take the prompt privately: update it (mup). Nothing was started."
+      reason: "Codeep " + versionText(version) + " is too old to take the prompt privately: install " + REVIEWED_CODEEP + " or later (README: Install). Nothing was started."
     }
   }
   return { ok: true }

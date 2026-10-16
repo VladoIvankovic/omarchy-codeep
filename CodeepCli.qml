@@ -76,7 +76,7 @@ Item {
 
   readonly property string home: String(Quickshell.env("HOME") || "")
 
-  readonly property string installHint: "omarchy-mise-install github:VladoIvankovic/Codeep codeep"
+  readonly property string installHint: Model.INSTALL_COMMAND
 
   function refresh() {
     // Nothing usable yet: look again from the start (Codeep may have been set
@@ -273,14 +273,14 @@ Item {
         root.versionParts = null
         root.version = ""
         root.versionOk = false
-        root.fail("Codeep did not say its version (exit " + code + "). Update it: mup")
+        root.fail("Codeep did not say its version (exit " + code + "). Reinstall it: " + root.installHint)
         return
       }
       root.versionParts = v
       root.version = Model.versionText(v)
       if (!Model.versionAtLeast(v, Model.MIN_CODEEP)) {
         root.versionOk = false
-        root.fail("Codeep " + root.version + " is too old: usage needs " + Model.versionText(Model.MIN_CODEEP) + " or later. Update it: mup")
+        root.fail("Codeep " + root.version + " is too old: usage needs " + Model.versionText(Model.MIN_CODEEP) + " or later. Update it: " + root.installHint)
         return
       }
       root.versionOk = true

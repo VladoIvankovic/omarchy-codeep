@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "codeep.agent",
   "name": "Codeep",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Vlado Ivankovic",
   "license": "Apache-2.0",
   "description": "Codeep in the bar: whether it is idle, working or waiting for you, today's and this week's usage, and a field that opens Codeep in a terminal with your prompt.",

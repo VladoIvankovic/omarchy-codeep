@@ -438,7 +438,7 @@ test('promptGate: a prompt goes only to a real binary that has --prompt-file', (
   assert.deepEqual(M.promptGate(true, [3, 12, 2]), { ok: true });
   const old = M.promptGate(true, [3, 12, 0]);
   assert.equal(old.ok, false);
-  assert.equal(old.reason, 'Codeep 3.12.0 is too old to take the prompt privately: update it (mup). Nothing was started.');
+  assert.equal(old.reason, 'Codeep 3.12.0 is too old to take the prompt privately: install 3.12.1 or later (README: Install). Nothing was started.');
   assert.match(M.promptGate(true, [3, 10, 2]).reason, /^Codeep 3\.10\.2 is too old to take the prompt privately/);
   // The launcher that installs Codeep cannot be asked, and a prompt is never handed to it.
   const launcher = M.promptGate(false, null);
@@ -696,4 +696,16 @@ test('a runtime directory with "." or ".." segments yields no template: a file m
   assert.ok(path);
   assert.ok(M.removeArgv(path));
   assert.ok(M.launchArgv('/usr/bin/codeep', path, false));
+});
+
+test('the install command the plugin names is pinned to the reviewed Codeep', () => {
+  assert.equal(M.REVIEWED_CODEEP, '3.12.1');
+  assert.equal(M.INSTALL_COMMAND, 'omarchy-mise-install github:VladoIvankovic/Codeep@3.12.1 codeep');
+  // The reviewed version is one the plugin itself accepts for the Ask field.
+  assert.equal(M.supportsPromptFile(M.parseVersion('Codeep v' + M.REVIEWED_CODEEP)), true);
+  // No notice sends you to `mup`, which would not move a pinned install.
+  for (const reason of [M.promptGate(true, [3, 12, 0]).reason, M.promptGate(true, null).reason]) {
+    assert.doesNotMatch(reason, /\bmup\b/);
+    assert.match(reason, /3\.12\.1/);
+  }
 });

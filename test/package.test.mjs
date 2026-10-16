@@ -318,7 +318,7 @@ test('the README says what is true of the files and of the size', () => {
   assert.ok(Math.abs(lines - Number(stated[1].replace(/,/g, ''))) <= 100, `README says ${stated[1]}, the files have ${lines}`);
   // The version of the package is the version the README's requirements are written for.
   const m = JSON.parse(read('manifest.json'));
-  assert.equal(m.version, '1.1.0');
+  assert.equal(m.version, '1.1.1');
   assert.match(readme, /3\.12\.1/);
 });
 
@@ -328,4 +328,27 @@ test('an aborted Ask keeps what was typed even when it has to open the panel to 
   assert.match(widget, /property bool keepTextOnOpen: false/);
   assert.match(widget, /if \(!root\.keepTextOnOpen\) askField\.text = ""/);
   assert.match(widget, /root\.keepTextOnOpen = true\s*\n\s*root\.open\(\)/);
+});
+
+test('Codeep is installed pinned everywhere the plugin says how, and the README lists what was reviewed', () => {
+  const readme = read('README.md');
+  const cli = read('CodeepCli.qml');
+  const pinned = 'omarchy-mise-install github:VladoIvankovic/Codeep@3.12.1 codeep';
+  // The README, the panel's hint and the model agree on one command.
+  assert.ok(readme.includes(pinned));
+  assert.match(cli, /readonly property string installHint: Model\.INSTALL_COMMAND/);
+  assert.match(read('Model.js'), /var REVIEWED_CODEEP = "3\.12\.1"/);
+  // Nowhere an unpinned install, and no "mup" as the way to update.
+  for (const file of ['README.md', 'CodeepCli.qml', 'Widget.qml', 'Model.js']) {
+    assert.doesNotMatch(read(file), /github:VladoIvankovic\/Codeep codeep/, file);
+    assert.doesNotMatch(read(file), /Update: `mup`|Update it: mup|update it \(mup\)|Run `mup`/, file);
+  }
+  // The digests of the reviewed Linux assets (the files hashed, and equal to what GitHub reports).
+  const x86 = '3a0e82181f3a59857fe9103d438c09744cd86879ff09f746a3867e4fb7c7e992';
+  const arm = '8cd989ef975c8abe4a797c122d3a68c5ce0447d7021ba0cb604045811498a19c';
+  // x86_64 twice (the table, and the `sha256sum -c` line that checks the file), aarch64 once (the table).
+  assert.equal(readme.split(x86).length - 1, 2);
+  assert.equal(readme.split(arm).length - 1, 1);
+  assert.ok(readme.includes(`echo "${x86}  codeep-linux-x86_64.tar.gz" | sha256sum -c`));
+  assert.match(readme, /never downloads, installs or updates Codeep/);
 });
