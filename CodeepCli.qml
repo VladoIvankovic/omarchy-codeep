@@ -12,8 +12,9 @@ import "Model.js" as Model
 //   peek      the first bytes of what `find` found. A mise shim, or the script
 //             `omarchy-mise-install` writes (it runs `mise use -g` and `mise x`,
 //             which fetch Codeep from GitHub on first use), is a launcher: it is
-//             never run by a probe. It is only kept as the thing to start when
-//             the user asks for Codeep, in a terminal.
+//             never run, by a probe or by a click, because what it downloads is
+//             not checked against the digests the README names. It is only
+//             remembered, so the panel can say what it found.
 //   which     `mise which codeep` under MISE_OFFLINE=1, from the home folder:
 //             where mise put the real binary, when only launchers were found.
 //   version   `codeep --version`. `usage` is only run on 3.11.0 or later:
@@ -28,7 +29,7 @@ import "Model.js" as Model
 //             Model.parseUsage.
 //
 // One process at a time, each under `timeout` (which also takes the process
-// group, so Codeep's launcher script and its child both go), output size
+// group, so a Codeep that starts children is stopped with them), output size
 // checked, nothing run from a shell string, and every Codeep probe under
 // `env MISE_OFFLINE=1 …` (Model.probeArgv). Everything is killed with this
 // item. Failures are one plain line for the panel, with what to do.
@@ -41,11 +42,11 @@ Item {
 
   // The real binary, which the probes run. Never a launcher.
   property string binary: ""
-  // A launcher that was found when there is no real binary yet.
+  // A launcher that was found when there is no real binary yet. Never started.
   property string launcher: ""
-  // What to start when the user asks for Codeep: the real binary, or else the
-  // launcher, whose first run installs it where the user can see it.
-  readonly property string launchPath: root.binary !== "" ? root.binary : root.launcher
+  // What to start when the user asks for Codeep: the real binary, and nothing
+  // else. A launcher would download Codeep unchecked.
+  readonly property string launchPath: root.binary
 
   // (Not `data`: that is Item's own default property.)
   property var usage: null
@@ -76,7 +77,7 @@ Item {
 
   readonly property string home: String(Quickshell.env("HOME") || "")
 
-  readonly property string installHint: Model.INSTALL_COMMAND
+  readonly property string installHint: Model.INSTALL_HINT
 
   function refresh() {
     // Nothing usable yet: look again from the start (Codeep may have been set
@@ -141,10 +142,11 @@ Item {
     root.fail("Codeep is not installed. Install it: " + root.installHint)
   }
 
-  // Only a launcher was found: Codeep is there to be started, not to be asked.
+  // Only a launcher was found. It is not started: what it would download is not
+  // the file the README's install checks.
   function notSetUp() {
     root.binary = ""
-    root.fail("Codeep is not set up yet: run codeep once in a terminal (a right click on the mark does that), then this shows its usage.")
+    root.fail("Found only a launcher, which this plugin never starts. Install Codeep: " + root.installHint)
   }
 
   function start(step, argv, seconds) {
@@ -292,13 +294,13 @@ Item {
     root.loading = false
     if (code !== 0) {
       root.versionOk = false
-      root.fail("Codeep usage failed (exit " + code + "). Try in a terminal: codeep usage --json")
+      root.fail("Codeep usage failed (exit " + code + "). Try in a terminal: " + root.binary + " usage --json")
       return
     }
     var parsed = Model.parseUsage(output)
     if (!parsed.ok) {
       root.versionOk = false
-      root.fail("Codeep usage printed something unexpected (" + parsed.reason + "). Try in a terminal: codeep usage --json")
+      root.fail("Codeep usage printed something unexpected (" + parsed.reason + "). Try in a terminal: " + root.binary + " usage --json")
       return
     }
     root.error = ""

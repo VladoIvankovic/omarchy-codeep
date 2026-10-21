@@ -55,49 +55,88 @@ own red.
   for the Ask field, which hands the prompt over with `codeep --prompt-file`;
   before that Codeep ignores the flag and would start without it, so the
   widget checks the version and starts nothing on an older one. Install the
-  version this plugin was reviewed with, pinned (see "Which Codeep" below):
-  `omarchy-mise-install github:VladoIvankovic/Codeep@3.12.1 codeep`. A newer
-  Codeep works too; moving to one is a choice you make by naming it in that
-  command, not something `mup` does behind your back.
+  build this plugin was reviewed with, checked against its digest, as "Which
+  Codeep" below shows. A newer Codeep works too; moving to one is a choice you
+  make, not something `mup` does behind your back.
 - Codeep's **Share live status with Omarchy plugins** setting (on by default,
   in `/settings`, shown on Omarchy only). With it off the bar mark stays dim
   and the panel lists nothing running; usage and Ask still work.
 - `find`, `timeout`, `head`, `env`, `test`, `mktemp` and `rm` (findutils,
   coreutils) and `omarchy-launch-tui`, which Omarchy has; `mise`, for a
   mise-installed Codeep. `$XDG_RUNTIME_DIR` set in the shell's environment
-  (a login session does that), for the Ask field.
+  (a login session does that), for the Ask field. To install Codeep as below:
+  `curl`, `sha256sum`, `tar`, `gzip` and `install`.
 
 ## Which Codeep
 
 This plugin never downloads, installs or updates Codeep, and never asks
 anything to: which `codeep` runs is yours to decide, and the plugin only asks
-it `--version` (and, from 3.11.0, `usage --json`). The install command above is
-pinned to **3.12.1**, the release this plugin 1.1 was reviewed and tested with.
-Without the `@3.12.1`, `github:VladoIvankovic/Codeep` takes whatever the latest
-GitHub release is on the day you install, and a release on GitHub can be
-replaced by whoever controls the repository. (These releases are not
-immutable, GitHub's setting that locks a release's tag and files after it is
-published; that is a choice for Codeep's own repository.)
-
-mise compares every download with the SHA-256 digest GitHub reports for the
-asset. To check the files yourself against what was reviewed — the Linux
-builds of `v3.12.1`, hashed from the downloaded files and equal to what
-GitHub reports:
+it `--version` (and, from 3.11.0, `usage --json`). It was reviewed and tested
+with Codeep **3.12.1**, and these are the Linux builds of `v3.12.1` it was
+reviewed with, hashed from the downloaded files and equal to what GitHub
+reports:
 
 | Asset | Size | SHA-256 |
 |---|---|---|
 | `codeep-linux-x86_64.tar.gz` | 43,800,474 | `3a0e82181f3a59857fe9103d438c09744cd86879ff09f746a3867e4fb7c7e992` |
 | `codeep-linux-aarch64.tar.gz` | 42,279,662 | `8cd989ef975c8abe4a797c122d3a68c5ce0447d7021ba0cb604045811498a19c` |
 
+Install that build with the line for your machine (`uname -m`). In a temporary
+folder of its own it downloads the archive, checks it against the digest above
+and only if it matches unpacks it and installs that same file as
+`~/.local/bin/codeep`, replacing whatever was there (the launcher
+`omarchy-mise-install` writes, for one). If the check fails, nothing is
+installed. When the line finishes, pass or fail, the folder is removed and your
+shell is where it was (stopped halfway with Ctrl+C, the folder stays in `/tmp`
+until the next reboot).
+
+x86_64:
+
 ```bash
-curl -fsSLO https://github.com/VladoIvankovic/Codeep/releases/download/v3.12.1/codeep-linux-x86_64.tar.gz
-echo "3a0e82181f3a59857fe9103d438c09744cd86879ff09f746a3867e4fb7c7e992  codeep-linux-x86_64.tar.gz" | sha256sum -c
+(d=$(mktemp -d) && cd "$d" && curl -fLO https://github.com/VladoIvankovic/Codeep/releases/download/v3.12.1/codeep-linux-x86_64.tar.gz && echo "3a0e82181f3a59857fe9103d438c09744cd86879ff09f746a3867e4fb7c7e992  codeep-linux-x86_64.tar.gz" | sha256sum -c - && tar -xzf codeep-linux-x86_64.tar.gz && install -Dm755 codeep-linux-x86_64 ~/.local/bin/codeep; rc=$?; [ -n "$d" ] && rm -rf -- "$d"; exit $rc)
 ```
 
-A different file under the same version means the release was changed after
-this plugin was reviewed: do not install it, and say so in an issue on this
-repository. To move to a newer Codeep, read its release notes and run the
-install command with its version.
+aarch64:
+
+```bash
+(d=$(mktemp -d) && cd "$d" && curl -fLO https://github.com/VladoIvankovic/Codeep/releases/download/v3.12.1/codeep-linux-aarch64.tar.gz && echo "8cd989ef975c8abe4a797c122d3a68c5ce0447d7021ba0cb604045811498a19c  codeep-linux-aarch64.tar.gz" | sha256sum -c - && tar -xzf codeep-linux-aarch64.tar.gz && install -Dm755 codeep-linux-aarch64 ~/.local/bin/codeep; rc=$?; [ -n "$d" ] && rm -rf -- "$d"; exit $rc)
+```
+
+The plugin looks for `codeep` in the folders on its PATH first, then in
+`~/.local/share/mise/shims`, `~/.local/bin`, `/usr/local/bin` and `/usr/bin`,
+skipping launchers; when it finds only launchers it asks `mise which codeep`
+(offline) for a binary mise has already installed. So a Codeep that comes
+earlier wins, for the plugin as for a terminal. To make the plugin use exactly
+the file you checked:
+
+```bash
+omarchy bar set codeep.agent codeepPath ~/.local/bin/codeep
+```
+
+In a terminal, `command -v codeep` should then print `~/.local/bin/codeep`
+(expanded). If it prints a mise path, an earlier install with mise is still
+active. Remove it from mise (neither command downloads anything; Omarchy's own
+migrations use the same two):
+
+```bash
+mise unuse -g github:VladoIvankovic/Codeep && mise uninstall --all github:VladoIvankovic/Codeep
+```
+
+The command checks the very file it installs because a release on GitHub can be
+replaced by whoever controls the repository: these releases are not immutable,
+GitHub's setting that locks a release's tag and files after it is published
+(that is a choice for Codeep's own repository). A failed check means the file is
+not the one reviewed: the release was changed, or the download was altered on
+the way. Do not install it, and say so in an issue on this repository.
+
+A Codeep that mise has already installed is found and used too, but mise
+checked its download against the digest GitHub reported on the day, not against
+the digests above, so it is not covered by this review. The plugin never starts
+a launcher itself, so it never installs one.
+
+To move to a newer Codeep, read its release notes and install it the same way,
+with its version and the digest GitHub shows for its asset; that check is then
+yours, not this review's.
 
 ## Install
 
@@ -135,7 +174,7 @@ boolean). A value of the wrong kind falls back to the default.
 | `refreshIntervalSec` | `60` | How often usage is read while the panel is open (15 to 3600). |
 | `statusIntervalSec` | `3` | How often to look for running Codeep (1 to 60). |
 | `animate` | `true` | Step the mark while Codeep works. Off holds one chevron lit instead. |
-| `codeepPath` | | The Codeep binary, when it is not on the shell's PATH or in `~/.local/share/mise/shims`, `~/.local/bin`, `/usr/local/bin`, `/usr/bin`. Not a mise shim or launcher script: those are never run in the background (see below). |
+| `codeepPath` | | The Codeep binary, when it is not on the shell's PATH or in `~/.local/share/mise/shims`, `~/.local/bin`, `/usr/local/bin`, `/usr/bin`. Not a mise shim or launcher script: those are never run at all (see below). |
 
 ```bash
 omarchy bar set codeep.agent unattended true --json
@@ -177,10 +216,10 @@ It never:
 
 - opens a network connection itself, or runs anything that would: a mise shim,
   or the script `omarchy-mise-install` leaves in `~/.local/bin` (it runs
-  `mise use -g` and `mise x`, which fetch Codeep from GitHub), is never run by
-  a background probe. When only such a launcher exists, the panel says Codeep
-  is not set up yet; an Ask is refused until then, and a right click on the mark
-  starts the launcher, in a terminal, where its install shows;
+  `mise use -g` and `mise x`, which fetch Codeep from GitHub), is never run, by
+  a background probe or by a click. When only such a launcher exists, the panel
+  says so and points to "Which Codeep"; a right click and an Ask start nothing
+  until a real Codeep is installed;
 - writes a file except the one private file an Ask hands its prompt over in
   (below), and that one only in `$XDG_RUNTIME_DIR`: nothing in its own folder,
   which would make the shell reload it, and nothing in your home folder;
@@ -217,8 +256,9 @@ output of `codeep` is only as good as the binary found on PATH.
 - `usage` is only run after `codeep --version` says 3.11.0 or later, because
   Codeep before that ignores words it does not know — `codeep usage --json`
   would start the chat. Its answer must be `schemaVersion` 1 and under 256 KB.
-- A missing or old Codeep is one line with the command to run (the pinned
-  install above). The bar mark still shows.
+- A missing or old Codeep is one line that points to "Which Codeep" above,
+  whose command installs the reviewed build only after checking it. The bar
+  mark still shows.
 - Every process is single-flight, under `timeout`, and stopped when the widget
   is.
 
@@ -270,9 +310,9 @@ What that does and does not give you, precisely:
   in the notification when it ends. Those are Codeep's, not this plugin's, and
   their permissions are Codeep's.
 - A launch with a prompt needs a real Codeep 3.12.1 or later. The launcher
-  script `omarchy-mise-install` leaves behind is only ever started bare (right
-  click), never with a prompt: it cannot be asked its version, and the prompt
-  could not be handed to it privately.
+  script `omarchy-mise-install` leaves behind is never started, bare or with a
+  prompt: it cannot be asked its version, the prompt could not be handed to it
+  privately, and what it downloads is not checked against the reviewed digests.
 
 ## Good to know
 
@@ -295,16 +335,18 @@ What that does and does not give you, precisely:
 
 | The panel says | What to do |
 |---|---|
-| Codeep is not installed. Install it: omarchy-mise-install github:VladoIvankovic/Codeep@3.12.1 codeep | Run that. If it is installed somewhere unusual, set `codeepPath`. |
-| Codeep is not set up yet: run codeep once in a terminal | Only the mise launcher was found. Right-click the mark, which runs `codeep` once in a terminal: mise installs the real binary. |
-| Codeep is not set up yet: run it once (right click on the mark), then Ask. Nothing was started. | The same, said to an Ask: a prompt is never handed to the launcher. Right-click the mark first. Your text stays in the field. |
+| Codeep is not installed. Install it: see "Which Codeep" at github.com/VladoIvankovic/omarchy-codeep: Codeep 3.12.1, checked against its digest | Install it as [Which Codeep](#which-codeep) shows. If it is installed somewhere unusual, set `codeepPath`. |
+| Found only a launcher, which this plugin never starts. Install Codeep: see "Which Codeep" at github.com/VladoIvankovic/omarchy-codeep: Codeep 3.12.1, checked against its digest | Install Codeep as [Which Codeep](#which-codeep) shows: it replaces a launcher in `~/.local/bin`. If `codeepPath` points at a launcher, point it at `~/.local/bin/codeep`. |
+| No real Codeep was found (a launcher is never started). Install 3.12.1 (README: Which Codeep). Nothing was started. | The same, said to an Ask (when the binary changed between two steps, too). Your text stays in the field. |
+| Codeep did not say its version, so the prompt was not handed over. Install 3.12.1 (README: Which Codeep). Nothing was started. | `codeep --version` failed for this Ask. Install it as [Which Codeep](#which-codeep) shows. Your text stays in the field. |
+| Codeep did not say its version (exit N). Reinstall it: see "Which Codeep" at github.com/VladoIvankovic/omarchy-codeep: Codeep 3.12.1, checked against its digest | The file that was found is not a working Codeep. Install it as [Which Codeep](#which-codeep) shows, or point `codeepPath` at the right one. |
 | The work folder ~/Work does not exist, so an unattended run was not started | Create the folder, or `omarchy bar set codeep.agent workDir <folder>`. |
-| Codeep 3.10.2 is too old: usage needs 3.11.0 or later. Update it: omarchy-mise-install github:VladoIvankovic/Codeep@3.12.1 codeep | Run that. |
-| Codeep 3.12.0 is too old to take the prompt privately: install 3.12.1 or later (README: Install). Nothing was started. | Run the pinned install above. Your text stays in the field, and nothing was started. |
+| Codeep 3.10.2 is too old: usage needs 3.11.0 or later. Update it: see "Which Codeep" at github.com/VladoIvankovic/omarchy-codeep: Codeep 3.12.1, checked against its digest | Install 3.12.1 as [Which Codeep](#which-codeep) shows. |
+| Codeep 3.12.0 is too old to take the prompt privately: install 3.12.1 or later (README: Which Codeep). Nothing was started. | Install 3.12.1 as [Which Codeep](#which-codeep) shows. Your text stays in the field, and nothing was started. |
 | There is no private place for the prompt ($XDG_RUNTIME_DIR is not set). Nothing was started. | The shell has no `XDG_RUNTIME_DIR`; a login session sets it. Restart the shell from one (`omarchy-restart-shell`). |
 | Could not make a private file for the prompt / write the prompt to its private file. Nothing was started. | `$XDG_RUNTIME_DIR` is full or not writable: look at `df -h "$XDG_RUNTIME_DIR"`. |
 | Codeep did not answer in time. Nothing was started. | A step took more than 30 seconds. Try again. |
-| Codeep usage failed / printed something unexpected | Run `codeep usage --json` in a terminal and look. |
+| Codeep usage failed / printed something unexpected. Try in a terminal: /path/to/codeep usage --json | Run that command (it names the binary the plugin found) and look. |
 | No Codeep running, but one is | Turn on **Share live status with Omarchy plugins** in Codeep's `/settings`. |
 
 ## Development

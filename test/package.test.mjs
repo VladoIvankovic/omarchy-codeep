@@ -318,7 +318,7 @@ test('the README says what is true of the files and of the size', () => {
   assert.ok(Math.abs(lines - Number(stated[1].replace(/,/g, ''))) <= 100, `README says ${stated[1]}, the files have ${lines}`);
   // The version of the package is the version the README's requirements are written for.
   const m = JSON.parse(read('manifest.json'));
-  assert.equal(m.version, '1.1.1');
+  assert.equal(m.version, '1.1.2');
   assert.match(readme, /3\.12\.1/);
 });
 
@@ -330,14 +330,56 @@ test('an aborted Ask keeps what was typed even when it has to open the panel to 
   assert.match(widget, /root\.keepTextOnOpen = true\s*\n\s*root\.open\(\)/);
 });
 
-test('Codeep is installed pinned everywhere the plugin says how, and the README lists what was reviewed', () => {
+test('the README installs exactly the file it checked against the reviewed digest', () => {
   const readme = read('README.md');
   const cli = read('CodeepCli.qml');
-  const pinned = 'omarchy-mise-install github:VladoIvankovic/Codeep@3.12.1 codeep';
-  // The README, the panel's hint and the model agree on one command.
-  assert.ok(readme.includes(pinned));
-  assert.match(cli, /readonly property string installHint: Model\.INSTALL_COMMAND/);
+  // The panel's hint is the model's, and points to that section, not to a command.
+  assert.match(cli, /readonly property string installHint: Model\.INSTALL_HINT/);
   assert.match(read('Model.js'), /var REVIEWED_CODEEP = "3\.12\.1"/);
+  assert.match(readme, /^## Which Codeep$/m);
+  for (const arch of ['x86_64', 'aarch64']) {
+    const asset = `codeep-linux-${arch}.tar.gz`;
+    // The digest the table says was reviewed for this asset.
+    const row = readme.match(new RegExp('^\\| `' + asset.replace(/\./g, '\\.') + '` \\| [0-9,]+ \\| `([0-9a-f]{64})` \\|$', 'm'));
+    assert.ok(row, 'table row for ' + asset);
+    const digest = row[1];
+    // One line, in a subshell of its own: download, check THAT file against THAT
+    // digest, and only then (`&&`, never `;` or a second command) unpack it and
+    // install the same file; the temporary folder goes either way.
+    const line = '(d=$(mktemp -d) && cd "$d" && curl -fLO https://github.com/VladoIvankovic/Codeep/releases/download/v3.12.1/' + asset +
+      ' && echo "' + digest + '  ' + asset + '" | sha256sum -c - && tar -xzf ' + asset +
+      ' && install -Dm755 codeep-linux-' + arch + ' ~/.local/bin/codeep; rc=$?; [ -n "$d" ] && rm -rf -- "$d"; exit $rc)';
+    assert.ok(readme.split('\n').includes(line), 'checked install line for ' + arch);
+  }
+  // No instruction left that installs Codeep without that check, and no
+  // literal command to copy even in a comment.
+  for (const file of ['README.md', 'Model.js', 'CodeepCli.qml', 'Widget.qml']) {
+    assert.doesNotMatch(read(file), /omarchy-mise-install github:/, file);
+    assert.doesNotMatch(read(file), /mise use -g github:VladoIvankovic/, file);
+  }
+  assert.doesNotMatch(readme, /mise installs the real binary|right-click the mark|run it once|starts the launcher|let the launcher install/i);
+  // The plugin never starts a launcher: only the real binary is what a click starts...
+  assert.match(cli, /readonly property string launchPath: root\.binary\n/);
+  // Every answer to a launch is that path, and the widget never reaches for the launcher.
+  const ready = [...cli.matchAll(/root\.binaryReady\(([^)]*)\)/g)].map(m => m[1]);
+  assert.ok(ready.length >= 2, 'binaryReady calls');
+  for (const arg of ready) assert.equal(arg, 'root.launchPath');
+  assert.doesNotMatch(read('Widget.qml'), /cli\.launcher/);
+  // "Try in a terminal" names the binary the plugin found, never a bare `codeep`,
+  // which could be a launcher that downloads Codeep unchecked.
+  for (const m of cli.matchAll(/Try in a terminal: ([^)]*)\)/g)) assert.match(m[1], /^" \+ root\.binary \+ " usage --json"$/, m[0]);
+  // ...and the notice for "only a launcher was found" points to the checked install.
+  assert.match(cli, /function notSetUp\(\) \{\s*root\.binary = ""\s*root\.fail\("Found only a launcher, which this plugin never starts\. Install Codeep: " \+ root\.installHint\)/);
+  // Every notice that tells you to install, update or reinstall Codeep, in the
+  // code and in the README's table, carries the hint, and no other way.
+  const told = [...cli.matchAll(/(Install it|Install Codeep|Update it|Reinstall it): " \+ ([\w.]+)/g)];
+  assert.equal(told.length, 4, 'install, launcher, reinstall and update notices');
+  for (const m of told) assert.equal(m[2], 'root.installHint', m[0]);
+  const rows = readme.split('\n').filter(l => /^\| .*(Install it|Install Codeep|Update it|Reinstall it):/.test(l));
+  assert.ok(rows.length >= 4, 'troubleshooting rows that say how to install');
+  // The hint as the panel shows it (model.test.mjs pins Model.INSTALL_HINT to the same words).
+  const hint = 'see "Which Codeep" at github.com/VladoIvankovic/omarchy-codeep: Codeep 3.12.1, checked against its digest';
+  for (const row of rows) assert.ok(row.includes(hint), row.slice(0, 80));
   // Nowhere an unpinned install, and no "mup" as the way to update.
   for (const file of ['README.md', 'CodeepCli.qml', 'Widget.qml', 'Model.js']) {
     assert.doesNotMatch(read(file), /github:VladoIvankovic\/Codeep codeep/, file);
@@ -346,9 +388,8 @@ test('Codeep is installed pinned everywhere the plugin says how, and the README 
   // The digests of the reviewed Linux assets (the files hashed, and equal to what GitHub reports).
   const x86 = '3a0e82181f3a59857fe9103d438c09744cd86879ff09f746a3867e4fb7c7e992';
   const arm = '8cd989ef975c8abe4a797c122d3a68c5ce0447d7021ba0cb604045811498a19c';
-  // x86_64 twice (the table, and the `sha256sum -c` line that checks the file), aarch64 once (the table).
+  // Each twice: in the table, and in the install line that checks the file before it installs it.
   assert.equal(readme.split(x86).length - 1, 2);
-  assert.equal(readme.split(arm).length - 1, 1);
-  assert.ok(readme.includes(`echo "${x86}  codeep-linux-x86_64.tar.gz" | sha256sum -c`));
+  assert.equal(readme.split(arm).length - 1, 2);
   assert.match(readme, /never downloads, installs or updates Codeep/);
 });

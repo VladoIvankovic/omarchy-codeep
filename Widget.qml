@@ -173,11 +173,9 @@ Panel {
   }
 
   // `omarchy-launch-tui` is what `omarchy agent` itself uses: one argv, no
-  // shell. See Model.launchArgv. What is started is the real binary, or, when
-  // Codeep was never set up, the launcher that installs it: that one only ever
-  // runs because the user asked, in a terminal where the install shows, and
-  // never with a prompt (it cannot be asked for its version, and a prompt
-  // cannot be handed to it privately).
+  // shell. See Model.launchArgv. What is started is the real binary and nothing
+  // else: when only a launcher was found, `cli.launchPath` is empty, nothing
+  // starts, and the panel says to install Codeep as the README shows.
   function launchCodeep(prompt) {
     if (root.launchStage !== "") return
     root.pendingPrompt = prompt

@@ -438,17 +438,19 @@ test('promptGate: a prompt goes only to a real binary that has --prompt-file', (
   assert.deepEqual(M.promptGate(true, [3, 12, 2]), { ok: true });
   const old = M.promptGate(true, [3, 12, 0]);
   assert.equal(old.ok, false);
-  assert.equal(old.reason, 'Codeep 3.12.0 is too old to take the prompt privately: install 3.12.1 or later (README: Install). Nothing was started.');
+  assert.equal(old.reason, 'Codeep 3.12.0 is too old to take the prompt privately: install 3.12.1 or later (README: Which Codeep). Nothing was started.');
   assert.match(M.promptGate(true, [3, 10, 2]).reason, /^Codeep 3\.10\.2 is too old to take the prompt privately/);
-  // The launcher that installs Codeep cannot be asked, and a prompt is never handed to it.
+  // A launcher that would download Codeep is never started, so the Ask is
+  // refused and pointed at the checked install, never at the launcher.
   const launcher = M.promptGate(false, null);
   assert.equal(launcher.ok, false);
-  assert.match(launcher.reason, /not set up yet: run it once/);
+  assert.match(launcher.reason, /^No real Codeep was found \(a launcher is never started\)\. Install 3\.12\.1 \(README: Which Codeep\)\. Nothing was started\.$/);
+  assert.doesNotMatch(launcher.reason, /run it once|right click|mise/i);
   assert.equal(M.promptGate(false, [3, 12, 1]).ok, false);
   // A version that was not read is not a version that has it.
   const unknown = M.promptGate(true, null);
   assert.equal(unknown.ok, false);
-  assert.match(unknown.reason, /^Could not tell which version of Codeep this is/);
+  assert.match(unknown.reason, /^Codeep did not say its version, so the prompt was not handed over\./);
   assert.match(unknown.reason, /Nothing was started/);
   assert.equal(M.promptGate(true, 'v3.12.1').ok, false);
   assert.equal(M.promptGate('yes', [3, 12, 1]).ok, false);
@@ -698,9 +700,21 @@ test('a runtime directory with "." or ".." segments yields no template: a file m
   assert.ok(M.launchArgv('/usr/bin/codeep', path, false));
 });
 
-test('the install command the plugin names is pinned to the reviewed Codeep', () => {
+test('every refusal of an Ask fits the three lines the panel gives it', () => {
+  // The launch notice is three lines of caption text in a 340 px card: about 47
+  // columns, so a reason past ~130 characters loses its end ("Nothing was started.").
+  for (const reason of [M.promptGate(false, null).reason, M.promptGate(true, null).reason,
+    M.promptGate(true, [3, 12, 0]).reason, M.promptGate(true, [3, 10, 10]).reason]) {
+    assert.ok(reason.length <= 130, reason.length + ': ' + reason);
+    assert.match(reason, /Nothing was started\.$/);
+  }
+});
+
+test('the install hint the plugin names points to the checked install of the reviewed Codeep', () => {
   assert.equal(M.REVIEWED_CODEEP, '3.12.1');
-  assert.equal(M.INSTALL_COMMAND, 'omarchy-mise-install github:VladoIvankovic/Codeep@3.12.1 codeep');
+  assert.equal(M.INSTALL_HINT, 'see "Which Codeep" at github.com/VladoIvankovic/omarchy-codeep: Codeep 3.12.1, checked against its digest');
+  // A hint, not a command: nothing the panel tells you to run skips the digest.
+  assert.doesNotMatch(M.INSTALL_HINT, /mise|curl|github:/);
   // The reviewed version is one the plugin itself accepts for the Ask field.
   assert.equal(M.supportsPromptFile(M.parseVersion('Codeep v' + M.REVIEWED_CODEEP)), true);
   // No notice sends you to `mup`, which would not move a pinned install.

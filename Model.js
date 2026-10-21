@@ -23,13 +23,15 @@ var MAX_PID = 4194304
 // `codeep usage --json` and the live status files.
 var MIN_CODEEP = [3, 11, 0]
 
-// The Codeep this plugin was reviewed and tested with, and the install command
-// the plugin names wherever it tells you to install or update Codeep. The
-// command pins that version: `github:VladoIvankovic/Codeep` alone resolves to
-// whatever the latest GitHub release is on the day, and a release can be
-// replaced. The plugin itself never downloads, installs or updates Codeep.
+// The Codeep this plugin was reviewed and tested with, and what the plugin says
+// wherever it tells you to install or update Codeep: the README's "Which
+// Codeep", whose command installs the very file it has checked against the
+// reviewed digest. Not a command of its own: an install that only names the
+// version pins the version but not the file, and a release on GitHub can be
+// replaced. The plugin itself never downloads, installs or updates Codeep, and
+// never starts anything that would.
 var REVIEWED_CODEEP = "3.12.1"
-var INSTALL_COMMAND = "omarchy-mise-install github:VladoIvankovic/Codeep@" + REVIEWED_CODEEP + " codeep"
+var INSTALL_HINT = "see \"Which Codeep\" at github.com/VladoIvankovic/omarchy-codeep: Codeep " + REVIEWED_CODEEP + ", checked against its digest"
 // `codeep --prompt-file <path>`. Before it Codeep knows neither word: the flag
 // is ignored, the path is a stray word, and it starts without the prompt.
 var PROMPT_FILE_MIN_CODEEP = [3, 12, 1]
@@ -435,8 +437,9 @@ function allPaths(text) {
 // `omarchy-mise-install` leaves in ~/.local/bin, which runs `mise use -g` and
 // `mise x` and so fetches Codeep from GitHub the first time. A background probe
 // that ran either would open a network connection and write mise's global
-// configuration every few seconds. They are only run when the user asks for
-// Codeep, in a terminal where the install can be seen.
+// configuration every few seconds, and what they download is not checked
+// against the digests the README names. So they are never run, by a probe or by
+// a click: they are only recognised, so the panel can say what it found.
 function isMiseShim(path) {
   return typeof path === "string" && /\/mise\/shims\/[^\/]+$/.test(path)
 }
@@ -580,21 +583,22 @@ function removeArgv(path) {
 }
 
 // Whether a prompt may be handed over now, and what to say when not. The
-// version is that of the real binary, parsed; `realBinary` is false when only
-// the launcher that installs Codeep was found (it cannot be asked anything, and
-// a prompt cannot be handed to it privately). Returns { ok: true } or
-// { ok: false, reason }.
+// version is that of the real binary, parsed; `realBinary` is false when the
+// binary the launch resolved is not the one the probes know (only a launcher
+// was found, or the binary changed between two steps): nothing is started then,
+// least of all a launcher. Returns { ok: true } or { ok: false, reason }. Each
+// reason fits the three lines the panel gives it.
 function promptGate(realBinary, version) {
   if (realBinary !== true) {
-    return { ok: false, reason: "Codeep is not set up yet: run it once (right click on the mark), then Ask. Nothing was started." }
+    return { ok: false, reason: "No real Codeep was found (a launcher is never started). Install " + REVIEWED_CODEEP + " (README: Which Codeep). Nothing was started." }
   }
   if (!Array.isArray(version)) {
-    return { ok: false, reason: "Could not tell which version of Codeep this is, so the prompt was not handed over. Install " + REVIEWED_CODEEP + " or later (README: Install). Nothing was started." }
+    return { ok: false, reason: "Codeep did not say its version, so the prompt was not handed over. Install " + REVIEWED_CODEEP + " (README: Which Codeep). Nothing was started." }
   }
   if (!supportsPromptFile(version)) {
     return {
       ok: false,
-      reason: "Codeep " + versionText(version) + " is too old to take the prompt privately: install " + REVIEWED_CODEEP + " or later (README: Install). Nothing was started."
+      reason: "Codeep " + versionText(version) + " is too old to take the prompt privately: install " + REVIEWED_CODEEP + " or later (README: Which Codeep). Nothing was started."
     }
   }
   return { ok: true }
