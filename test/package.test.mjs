@@ -318,7 +318,7 @@ test('the README says what is true of the files and of the size', () => {
   assert.ok(Math.abs(lines - Number(stated[1].replace(/,/g, ''))) <= 100, `README says ${stated[1]}, the files have ${lines}`);
   // The version of the package is the version the README's requirements are written for.
   const m = JSON.parse(read('manifest.json'));
-  assert.equal(m.version, '1.1.2');
+  assert.equal(m.version, '1.1.3');
   assert.match(readme, /3\.12\.1/);
 });
 

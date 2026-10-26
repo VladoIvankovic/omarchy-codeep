@@ -298,8 +298,10 @@ environment, so it would never arrive.
 
 What that does and does not give you, precisely:
 
-- Other users of the machine cannot read your prompt from the process list, or
-  from the terminal's or Codeep's command line.
+- Other users of the machine cannot read your prompt from the terminal's or
+  Codeep's command line, which is all this plugin controls. **One exception
+  comes from Codeep itself, not from the plugin:** see "Codeep's desktop
+  notification" below.
 - The file is private to your user and lives for a second or two. It is not
   hidden from root, and not from a process running as you, for as long as it
   exists.
@@ -308,11 +310,30 @@ What that does and does not give you, precisely:
   first 400 characters go in Codeep's audit log (`.codeep/audit/`, on by
   default), and its first five plain words name the run in the status file and
   in the notification when it ends. Those are Codeep's, not this plugin's, and
-  their permissions are Codeep's.
+  their permissions are Codeep's. The notification is the one that reaches a
+  command line; read on.
 - A launch with a prompt needs a real Codeep 3.12.1 or later. The launcher
   script `omarchy-mise-install` leaves behind is never started, bare or with a
   prompt: it cannot be asked its version, the prompt could not be handed to it
   privately, and what it downloads is not checked against the reviewed digests.
+
+### Codeep's desktop notification
+
+Codeep 3.12.1, the release this plugin was reviewed with, can show a desktop
+notification when a run that has taken 30 seconds or more ends or needs you
+while its terminal does not have the focus (on Hyprland), and on Omarchy it is
+on unless you turn it off. It runs `notify-send` with the notification's text
+as arguments, and that text names the run by the **first five plain words of
+your prompt** (at most 48 characters, paths and file names left out). For the
+moment `notify-send` runs, those words are on a command line that other users of
+the machine can read, the same way the prompt itself used to be. This is
+Codeep's behaviour, started by Codeep and not by this plugin; the plugin
+cannot switch it off, because it never writes Codeep's settings.
+
+To close it, turn the notification off in Codeep (`/settings`, **Desktop
+notifications**, Off; the key is `desktopNotifications` in Codeep's config).
+The bar mark and the panel do not need it. Codeep 4.0 no longer puts any word
+of a prompt in a notification.
 
 ## Good to know
 
