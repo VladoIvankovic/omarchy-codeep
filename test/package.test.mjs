@@ -318,8 +318,34 @@ test('the README says what is true of the files and of the size', () => {
   assert.ok(Math.abs(lines - Number(stated[1].replace(/,/g, ''))) <= 100, `README says ${stated[1]}, the files have ${lines}`);
   // The version of the package is the version the README's requirements are written for.
   const m = JSON.parse(read('manifest.json'));
-  assert.equal(m.version, '1.1.3');
+  assert.equal(m.version, '1.1.4');
   assert.match(readme, /3\.12\.1/);
+});
+
+test('the README makes the Codeep settings a required step before the first Ask', () => {
+  const readme = read('README.md');
+  // A section of its own, ahead of the Settings table, that the Requirements point to.
+  const at = readme.indexOf('## Required setup before the first Ask');
+  assert.ok(at > 0, 'the section exists');
+  assert.ok(at < readme.indexOf('## Settings'), 'it comes before the plugin\'s own Settings');
+  const section = readme.slice(at, readme.indexOf('\n## ', at + 1));
+  assert.match(readme.slice(0, at), /Required setup before the first Ask/, 'the Requirements point to it');
+  // The three steps, with the exact words Codeep 3.12.1 shows.
+  assert.match(section, /`\/settings`[\s\S]*\*\*Desktop notifications\*\*[\s\S]*\*\*Off\*\*/);
+  assert.match(section, /\*\*Audit record Off\.\*\* Run `\/audit off`/);
+  assert.match(section, /chmod 700 ~\/\.config\/codeep-nodejs/);
+  // It says the plugin neither writes nor reads Codeep's settings, and what it does not cover.
+  assert.match(section, /never writes Codeep's settings/);
+  assert.match(section, /does not read them either/);
+  assert.match(section, /`@web <url>`/);
+  assert.match(section, /intelligence\.json/);
+  // The other sections send the reader there instead of repeating a weaker instruction.
+  assert.match(readme, /do step 1 of "Required setup before the first Ask"/);
+  assert.match(readme, /Two exceptions\s+come from Codeep itself/);
+  // The plugin still never touches Codeep's settings file: no reference in the code.
+  for (const file of [...qmlFiles, 'Model.js']) {
+    assert.doesNotMatch(read(file), /codeep-nodejs|desktopNotifications|auditLog/, file);
+  }
 });
 
 test('an aborted Ask keeps what was typed even when it has to open the panel to say why', () => {

@@ -58,6 +58,11 @@ own red.
   build this plugin was reviewed with, checked against its digest, as "Which
   Codeep" below shows. A newer Codeep works too; moving to one is a choice you
   make, not something `mup` does behind your back.
+- **Codeep set up as "Required setup before the first Ask" says, before you
+  use the Ask field:** Desktop notifications Off, the audit record Off, and
+  Codeep's settings folder closed to other users. These are required, not
+  advised: they are the places where a prompt, or a key, can reach other users
+  of the machine in Codeep 3.12.1.
 - Codeep's **Share live status with Omarchy plugins** setting (on by default,
   in `/settings`, shown on Omarchy only). With it off the bar mark stays dim
   and the panel lists nothing running; usage and Ask still work.
@@ -159,6 +164,55 @@ From a terminal or a key binding:
 ```bash
 omarchy-shell codeep.agent toggle      # open, close, show, hide, toggle, refresh
 ```
+
+## Required setup before the first Ask
+
+Do this once, in Codeep, before you use the Ask field. The plugin cannot do it
+for you: it never writes Codeep's settings. It does not read them either (that
+file can hold your API keys), so it cannot tell whether you did. The bar mark
+and the usage need none of it; an Ask without it is not covered by what "Where
+your prompt goes" says.
+
+Codeep 3.12.1, the release this plugin was reviewed with, puts a few words of a
+prompt in two places that other users of the machine may be able to read, and
+creates its settings file readable by them (with the usual umask 022). All
+three are Codeep's own, and the
+first two are on by default on Omarchy. None of this is the plugin's doing, and
+each step below closes one of them.
+
+1. **Desktop notifications Off.** Start `codeep` in any terminal, run
+   `/settings`, choose **Desktop notifications** and set it to **Off**. (The
+   notification runs `notify-send` with the first five plain words of the
+   prompt as arguments, which other users can read for as long as it runs.)
+   Codeep writes an explicit Off; with nothing set, Omarchy counts as On.
+2. **Audit record Off.** Run `/audit off`. (Codeep writes the first 400
+   characters of every agent prompt to `.codeep/audit/` in the project, in a
+   file other users can read when they can enter the project's folder.) Files
+   it has already written stay: delete `.codeep/audit/` in the projects where
+   you used Codeep before.
+3. **Settings folder closed.** Run `chmod 700 ~/.config/codeep-nodejs`
+   (`$XDG_CONFIG_HOME/codeep-nodejs` if you set that). Codeep creates its
+   settings file readable by other users, and when no system keyring is
+   available it keeps your API keys in that file. The folder's mode is what
+   holds, whatever the file's mode is. If `codeep` warns that the system
+   keychain is unavailable, install a keyring (`gnome-keyring` or another
+   Secret Service) as well.
+
+Check: `/settings` shows **Desktop notifications** Off, and `/audit off`
+answers "Audit recording off". Codeep's settings are one file for all projects,
+`config.json` in that folder, so this is done once per user, not per project.
+
+What this does not cover, in Codeep 3.12.1 (fixes are planned for Codeep 4.0,
+which this plugin will pin once it is released; until then they are there):
+
+- A request that is retried after a failure looks up the provider again. If you
+  switch provider with `/provider` while a request is retrying, the key of the
+  first provider can go to the second. Do not switch while a reply is pending.
+- A `.codeep/intelligence.json` that is a symbolic link is followed outside the
+  project. Do not open a folder you do not trust with Codeep.
+- A file you attach to a chat message is searched for `@web <url>` lines, and
+  such a line makes Codeep fetch that address, local ones included. Do not
+  attach files you do not trust.
 
 ## Settings
 
@@ -299,19 +353,20 @@ environment, so it would never arrive.
 What that does and does not give you, precisely:
 
 - Other users of the machine cannot read your prompt from the terminal's or
-  Codeep's command line, which is all this plugin controls. **One exception
-  comes from Codeep itself, not from the plugin:** see "Codeep's desktop
-  notification" below.
+  Codeep's command line, which is all this plugin controls. **Two exceptions
+  come from Codeep itself, not from the plugin:** its desktop notification and
+  its audit record; "Required setup before the first Ask" switches both off.
 - The file is private to your user and lives for a second or two. It is not
   hidden from root, and not from a process running as you, for as long as it
   exists.
 - It is only the transport. Once Codeep has the prompt it is part of the session
   Codeep saves (the project's `.codeep/sessions` or `~/.codeep/sessions`), its
   first 400 characters go in Codeep's audit log (`.codeep/audit/`, on by
-  default), and its first five plain words name the run in the status file and
+  default, in a file other users can read when they can enter the project's
+  folder), and its first five plain words name the run in the status file and
   in the notification when it ends. Those are Codeep's, not this plugin's, and
-  their permissions are Codeep's. The notification is the one that reaches a
-  command line; read on.
+  their permissions are Codeep's. The notification (a command line) and the
+  audit log (a file) are the two that reach other users; read on.
 - A launch with a prompt needs a real Codeep 3.12.1 or later. The launcher
   script `omarchy-mise-install` leaves behind is never started, bare or with a
   prompt: it cannot be asked its version, the prompt could not be handed to it
@@ -330,9 +385,9 @@ the machine can read, the same way the prompt itself used to be. This is
 Codeep's behaviour, started by Codeep and not by this plugin; the plugin
 cannot switch it off, because it never writes Codeep's settings.
 
-To close it, turn the notification off in Codeep (`/settings`, **Desktop
-notifications**, Off; the key is `desktopNotifications` in Codeep's config).
-The bar mark and the panel do not need it. Codeep 4.0 no longer puts any word
+To close it, do step 1 of "Required setup before the first Ask" (`/settings`,
+**Desktop notifications**, Off; the key is `desktopNotifications` in Codeep's
+config). The bar mark and the panel do not need it. Codeep 4.0 no longer puts any word
 of a prompt in a notification.
 
 ## Good to know
